@@ -1,11 +1,10 @@
-name: Build & Release Signed APK (tu tao keystore)
+name: Build & Release Signed APK
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
-# Can quyen "contents: write" de tao/cap nhat GitHub Release
 permissions:
   contents: write
 
@@ -17,7 +16,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17 (co san keytool de tao keystore)
+      - name: Set up JDK 17 (co san keytool)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -29,73 +28,30 @@ jobs:
           gradle-version: '8.14'
           cache-read-only: false
 
-      # ------------------------------------------------------------------
-      # Buoc quan trong nhat: dam bao co keystore de ky APK.
-      #
-      # - Neu repo DA co secret KEYSTORE_BASE64 tu lan chay truoc -> chi
-      #   giai ma ra dung lai, KHONG tao moi (de giu nguyen chu ky, cai
-      #   de duoc len ban cu).
-      # - Neu la lan chay DAU TIEN (chua co secret nao) -> tu dung keytool
-      #   tao keystore + mat khau ngau nhien, roi dung GitHub CLI (gh) de
-      #   luu lai thanh 4 secret trong chinh repo nay, phuc vu cac lan
-      #   build sau. Buoc nay can secret GH_PAT (Personal Access Token)
-      #   de duoc phep ghi Secrets - xem huong dan trong README.md.
-      # ------------------------------------------------------------------
-      - name: Dam bao co keystore ky release (tu tao neu chua co)
-        env:
-          EXISTING_KS_B64: ${{ secrets.KEYSTORE_BASE64 }}
-          EXISTING_KS_PW: ${{ secrets.KEYSTORE_PASSWORD }}
-          EXISTING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          EXISTING_KEY_PW: ${{ secrets.KEY_PASSWORD }}
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+      # Tu tao keystore ky moi cho MOI lan build - khong can thiet lap gi
+      # truoc, khong can secret nao. Mat khau sinh ngau nhien, chi ton tai
+      # trong lan chay nay roi bi xoa, khong luu lai o dau ca.
+      - name: Tu tao keystore va ky APK
         run: |
           set -e
           KS_FILE="${{ github.workspace }}/release.keystore.jks"
+          KS_PW=$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 24)
+          K_ALIAS="quetsogoi"
 
-          if [ -n "$EXISTING_KS_B64" ]; then
-            echo "Da co keystore tu lan chay truoc -> dung lai (giu nguyen chu ky)."
-            echo "$EXISTING_KS_B64" | base64 --decode > "$KS_FILE"
-            KS_PW="$EXISTING_KS_PW"
-            K_ALIAS="$EXISTING_KEY_ALIAS"
-            K_PW="$EXISTING_KEY_PW"
-          else
-            echo "Chua co keystore -> tu tao moi lan dau tien..."
+          echo "::add-mask::$KS_PW"
 
-            if [ -z "$GH_TOKEN" ]; then
-              echo "::error::Chua co secret GH_PAT (Personal Access Token). Workflow can token nay de tu luu lai keystore vua tao vao GitHub Secrets, phuc vu cac lan build sau. Xem huong dan tao token trong README.md, muc 'Thiet lap (khong can Java)'."
-              exit 1
-            fi
-
-            K_ALIAS="quetsogoi"
-            KS_PW=$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 24)
-            K_PW=$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 24)
-
-            # Che (mask) mat khau ngay lap tuc de khong bao gio hien ra trong log
-            echo "::add-mask::$KS_PW"
-            echo "::add-mask::$K_PW"
-
-            keytool -genkeypair -v \
-              -keystore "$KS_FILE" \
-              -alias "$K_ALIAS" \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass "$KS_PW" -keypass "$K_PW" \
-              -dname "CN=QuetSoGoi, OU=Personal, O=DiepVan, L=HaNoi, S=HaNoi, C=VN"
-
-            KS_B64=$(base64 -w0 "$KS_FILE")
-
-            echo "Dang luu keystore vao GitHub Secrets cho repo ${{ github.repository }}..."
-            gh secret set KEYSTORE_BASE64 --repo "${{ github.repository }}" --body "$KS_B64"
-            gh secret set KEYSTORE_PASSWORD --repo "${{ github.repository }}" --body "$KS_PW"
-            gh secret set KEY_ALIAS --repo "${{ github.repository }}" --body "$K_ALIAS"
-            gh secret set KEY_PASSWORD --repo "${{ github.repository }}" --body "$K_PW"
-            echo "Da luu xong. Tu lan build tiep theo se tu dong dung lai keystore nay."
-          fi
+          keytool -genkeypair -v \
+            -keystore "$KS_FILE" \
+            -alias "$K_ALIAS" \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "$KS_PW" -keypass "$KS_PW" \
+            -dname "CN=QuetSoGoi, OU=Personal, O=DiepVan, L=HaNoi, S=HaNoi, C=VN"
 
           {
             echo "KEYSTORE_PATH=$KS_FILE"
             echo "KEYSTORE_PASSWORD=$KS_PW"
             echo "KEY_ALIAS=$K_ALIAS"
-            echo "KEY_PASSWORD=$K_PW"
+            echo "KEY_PASSWORD=$KS_PW"
           } >> "$GITHUB_ENV"
 
       - name: Build signed release APK
@@ -104,35 +60,37 @@ jobs:
           BUILD_VERSION_NAME: "1.0.${{ github.run_number }}"
         run: gradle assembleRelease --no-daemon --build-cache
 
-      - name: Xoa file keystore khoi runner (don dep, khong luu lai)
+      - name: Xoa keystore khoi runner
         if: always()
         run: rm -f release.keystore.jks
 
-      - name: Doi ten APK cho de nhan dien
+      - name: Doi ten APK
         run: |
           mkdir -p out
           cp app/build/outputs/apk/release/app-release.apk out/QuetSoGoi-v1.0.${{ github.run_number }}.apk
 
-      - name: Upload build artifact (backup, khong dung de cai dat tren dien thoai)
+      - name: Upload build artifact (backup)
         uses: actions/upload-artifact@v4
         with:
           name: QuetSoGoi-apk-run${{ github.run_number }}
           path: out/*.apk
 
-      # Link tai on dinh, cong khai, khong can dang nhap, khong het han -
-      # day la cach de nguoi dung tai va cai tren dien thoai.
+      # Link tai on dinh, cong khai, khong het han - cach de cai tren dien thoai.
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: "Quét Số Gọi - build #${{ github.run_number }}"
           body: |
-            APK ký release (chữ ký tự sinh và lưu bởi GitHub Actions), cài
-            trực tiếp được trên điện thoại Android.
-            Build tự động từ commit: ${{ github.sha }}
+            APK đã ký (chữ ký tự sinh mới cho lần build này).
+            Build từ commit: ${{ github.sha }}
 
             **Cách cài:** Mở link .apk bên dưới bằng trình duyệt trên điện thoại,
             tải về rồi bấm mở file để cài (lần đầu cần bật "Cho phép cài đặt
-            từ nguồn không xác định" cho trình duyệt bạn dùng).
+            từ nguồn không xác định").
+
+            ⚠️ Mỗi lần build dùng chữ ký mới, nên nếu máy bạn đã cài bản
+            trước đó, cần **gỡ cài đặt bản cũ** rồi mới cài bản này (không
+            cài đè trực tiếp được).
           files: out/*.apk
           make_latest: true
