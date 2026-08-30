@@ -11,11 +11,16 @@ android {
         applicationId "com.dieppham.phonescanner"
         minSdk 26
         targetSdk 35
+
         // CI truyền số build (GITHUB_RUN_NUMBER) vào để mỗi lần build ra
-        // versionCode khác nhau -> cài đè bản mới lên bản cũ dễ dàng, không
-        // bị Android báo "phiên bản này không mới hơn phiên bản đã cài".
-        versionCode (System.getenv("BUILD_VERSION_CODE") ?: "1").toInteger()
-        versionName (System.getenv("BUILD_VERSION_NAME") ?: "1.0")
+        // versionCode khác nhau -> cài đè bản mới lên bản cũ dễ dàng.
+        // Tách ra bien local truoc khi gan (thay vi viet inline
+        // "(a ?: b).toInteger()" ngay trong loi goi versionCode) de tranh
+        // loi "Value is null" khi AGP evaluate property trong luc build.
+        def buildVersionCode = (System.getenv("BUILD_VERSION_CODE") ?: "1") as Integer
+        def buildVersionName = System.getenv("BUILD_VERSION_NAME") ?: "1.0"
+        versionCode buildVersionCode
+        versionName buildVersionName
     }
 
     // Cấu hình ký release. Đọc thông tin từ biến môi trường do workflow CI
