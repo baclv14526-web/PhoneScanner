@@ -10,62 +10,69 @@
 
 ---
 
-## ⚠️ Thiết lập ký số (BẮT BUỘC làm 1 lần trước khi push)
+## ⚠️ Thiết lập (KHÔNG cần cài Java) — chỉ làm 1 lần
 
 Vì repo này là **public**, không thể commit file keystore/mật khẩu thật vào
-code (ai cũng thấy). Workflow CI ký APK bằng thông tin lấy từ **GitHub
-Secrets** — bạn cần tạo keystore và khai báo secrets 1 lần duy nhất, sau đó
-mọi lần push đều tự động build ra APK đã ký, không cần lặp lại bước này.
+code. Nhưng bạn không cần tự tạo keystore bằng `keytool` trên máy — **workflow
+sẽ tự làm việc đó ngay trên GitHub Actions** (runner của GitHub có sẵn Java),
+rồi tự lưu lại keystore đó vào GitHub Secrets để các lần build sau dùng lại
+(giữ nguyên chữ ký, không bị lỗi khi cài đè bản mới lên bản cũ).
 
-### Bước 1 — Tạo keystore (chạy trên máy tính của bạn, cần cài Java/JDK)
+Việc duy nhất bạn cần làm: tạo 1 **Personal Access Token (PAT)** để cho phép
+workflow được quyền tự ghi secret vào chính repo của bạn — thao tác này chỉ
+là click chuột trên trang web GitHub, không cần Java, không cần cài gì.
 
-```bash
-keytool -genkeypair -v \
-  -keystore release.keystore.jks \
-  -alias quetsogoi \
-  -keyalg RSA -keysize 2048 -validity 10000 \
-  -storepass "MAT_KHAU_KEYSTORE_CUA_BAN" \
-  -keypass "MAT_KHAU_KEY_CUA_BAN"
-```
+### Bước 1 — Tạo Personal Access Token
 
-Lệnh sẽ hỏi vài thông tin (tên, tổ chức, quốc gia...) — điền gì cũng được,
-không ảnh hưởng chức năng. **Lưu file `release.keystore.jks` này lại an
-toàn (ví dụ trong Password Manager hoặc ổ cứng riêng) — mất file này thì về
-sau không update được app nữa mà phải gỡ cài đặt bản cũ đi cài lại từ đầu.**
+1. Vào **github.com → bấm avatar góc phải trên → Settings**.
+2. Kéo xuống cuối menu bên trái, chọn **Developer settings**.
+3. Chọn **Personal access tokens → Tokens (classic) → Generate new token
+   (classic)**.
+4. Đặt tên bất kỳ (vd: `quetsogoi-ci`), thời hạn (Expiration) chọn **7 ngày**
+   là đủ (chỉ cần dùng 1 lần cho lần build đầu tiên).
+5. Tick chọn scope **`repo`** (tick vào ô `repo` ở đầu, nó sẽ tự tick hết
+   các ô con bên trong).
+6. Bấm **Generate token** ở cuối trang → **copy đoạn token hiện ra ngay**
+   (dạng `ghp_xxxxxxxxxxxx...`) — trang này chỉ hiện 1 lần duy nhất, rời
+   trang là mất, phải tạo token mới nếu quên copy.
 
-Tuyệt đối **không commit file `.jks` này vào Git**.
+### Bước 2 — Khai báo token đó làm Secret trong repo
 
-### Bước 2 — Encode keystore sang base64
+1. Vào repo trên GitHub → **Settings → Secrets and variables → Actions →
+   New repository secret**.
+2. Đặt tên secret là **`GH_PAT`**, dán token vừa copy vào ô Value → **Add secret**.
 
-```bash
-base64 -i release.keystore.jks -o keystore_base64.txt
-```
-(Trên Linux/Mac; trên Windows PowerShell dùng:
-`[Convert]::ToBase64String([IO.File]::ReadAllBytes("release.keystore.jks")) | Out-File keystore_base64.txt`)
-
-### Bước 3 — Khai báo 4 Secrets trên GitHub
-
-Vào repo trên GitHub → **Settings → Secrets and variables → Actions →
-New repository secret**, tạo lần lượt 4 secret sau:
-
-| Tên Secret | Giá trị |
-|---|---|
-| `KEYSTORE_BASE64` | Toàn bộ nội dung file `keystore_base64.txt` ở Bước 2 |
-| `KEYSTORE_PASSWORD` | Mật khẩu keystore bạn đặt ở Bước 1 (`-storepass`) |
-| `KEY_ALIAS` | `quetsogoi` (hoặc alias bạn đặt ở `-alias`) |
-| `KEY_PASSWORD` | Mật khẩu key bạn đặt ở Bước 1 (`-keypass`) |
-
-Xong bước này, **xoá file `keystore_base64.txt` khỏi máy** (không cần giữ,
-chỉ cần giữ file `.jks` gốc).
-
-### Bước 4 — Push code
+### Bước 3 — Push code
 
 ```bash
 git push origin main
 ```
 
-Workflow tự chạy, build APK ký release, và đăng lên tab **Releases** của
-repo (link cố định, không hết hạn).
+Lần chạy đầu tiên, workflow sẽ:
+1. Tự tạo keystore bằng `keytool` ngay trên máy chủ GitHub Actions.
+2. Tự sinh mật khẩu ngẫu nhiên an toàn cho keystore.
+3. Tự lưu keystore + mật khẩu vào 4 secret của repo (`KEYSTORE_BASE64`,
+   `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`) bằng chính `GH_PAT` bạn
+   vừa thêm.
+4. Dùng luôn keystore đó để ký APK và đăng lên GitHub Releases.
+
+**Từ lần push thứ 2 trở đi**, workflow thấy đã có sẵn 4 secret keystore nên
+sẽ **dùng lại y nguyên**, không tạo mới — nhờ vậy chữ ký không đổi giữa các
+lần build, cài đè bản mới lên bản cũ luôn thành công.
+
+### Bước 4 (khuyến nghị, không bắt buộc) — Thu hồi PAT sau khi build đầu tiên thành công
+
+Sau khi thấy lần build đầu tiên chạy xong và đã có APK trên tab Releases,
+bạn có thể xoá secret `GH_PAT` hoặc thu hồi token đó (**Settings → Developer
+settings → Personal access tokens → Delete**), vì từ giờ workflow không cần
+tới nó nữa (đã có sẵn keystore trong secrets rồi). Đây là bước bảo mật thêm,
+không làm thì token cũng tự hết hạn sau 7 ngày như đã đặt ở Bước 1.
+
+**Lưu ý bảo mật:** keystore được tự sinh và lưu dưới dạng GitHub Secrets —
+những secret này chỉ có thể *ghi*, không ai (kể cả chủ repo) xem lại được
+giá trị qua giao diện web hay API sau khi đã lưu, chỉ workflow mới đọc được
+lúc chạy. Nếu file này lỡ bị mất do repo bị xoá secrets, bạn sẽ phải gỡ cài
+đặt app cũ trên điện thoại rồi cài lại bản ký bằng keystore mới.
 
 ---
 
