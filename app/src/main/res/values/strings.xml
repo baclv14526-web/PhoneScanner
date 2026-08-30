@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Quét Số Gọi</string>
+    <string name="hint_scanning">Đưa camera vào số điện thoại…</string>
+    <string name="btn_call">Gọi</string>
+    <string name="btn_rescan">Quét lại</string>
+    <string name="permission_camera_denied">Cần quyền Camera để quét số</string>
+    <string name="permission_call_denied">Cần quyền Gọi điện để thực hiện cuộc gọi</string>
+</resources>

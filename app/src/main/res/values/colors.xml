@@ -1,0 +1,8 @@
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="accent_green">#FF2E7D32</color>
+    <color name="accent_red">#FFC62828</color>
+    <color name="card_bg">#EE1C1C1E</color>
+    <color name="frame_color">#FF4CAF50</color>
+</resources>
