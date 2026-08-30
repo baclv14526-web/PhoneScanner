@@ -11,14 +11,40 @@ android {
         applicationId "com.dieppham.phonescanner"
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName "1.0"
+        // CI truyền số build (GITHUB_RUN_NUMBER) vào để mỗi lần build ra
+        // versionCode khác nhau -> cài đè bản mới lên bản cũ dễ dàng, không
+        // bị Android báo "phiên bản này không mới hơn phiên bản đã cài".
+        versionCode (System.getenv("BUILD_VERSION_CODE") ?: "1").toInteger()
+        versionName (System.getenv("BUILD_VERSION_NAME") ?: "1.0")
+    }
+
+    // Cấu hình ký release. Đọc thông tin từ biến môi trường do workflow CI
+    // set sẵn (lấy từ GitHub Secrets) - KHÔNG bao giờ hardcode mật khẩu ở
+    // đây vì repo này là public. Nếu chạy build release ở máy local, xem
+    // hướng dẫn set biến môi trường trong README.md.
+    signingConfigs {
+        release {
+            def ksPath = System.getenv("KEYSTORE_PATH")
+            if (ksPath != null && file(ksPath).exists()) {
+                storeFile file(ksPath)
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS")
+                keyPassword System.getenv("KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Chỉ gắn signingConfig release khi đủ biến môi trường (CI có set).
+            // Nếu build local mà chưa cấu hình keystore, Gradle sẽ dùng
+            // debug key mặc định để không bị lỗi build - nhưng APK đó sẽ
+            // không cài đè lên được bản ký bằng release key.
+            if (System.getenv("KEYSTORE_PATH") != null) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
