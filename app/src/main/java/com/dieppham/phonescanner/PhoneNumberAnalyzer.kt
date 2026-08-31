@@ -17,7 +17,8 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
  */
 class PhoneNumberAnalyzer(
     private val requiredStableFrames: Int = 3,
-    private val onStableNumberDetected: (String) -> Unit
+    private val onStableNumberDetected: (String) -> Unit,
+    private val onDebugInfo: ((rawText: String, error: String?) -> Unit)? = null
 ) : ImageAnalysis.Analyzer {
 
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
@@ -45,6 +46,7 @@ class PhoneNumberAnalyzer(
 
         val mediaImage = imageProxy.image
         if (mediaImage == null) {
+            onDebugInfo?.invoke("", "imageProxy.image = null (khung hình rỗng)")
             imageProxy.close()
             return
         }
@@ -54,7 +56,14 @@ class PhoneNumberAnalyzer(
         recognizer.process(inputImage)
             .addOnSuccessListener { visionText ->
                 val found = PhoneNumberExtractor.extractFirstValidNumber(visionText.text)
+                onDebugInfo?.invoke(visionText.text, null)
                 handleCandidate(found)
+            }
+            .addOnFailureListener { e ->
+                // Truoc day khong co listener nay -> moi loi OCR bi nuot am
+                // tham, khong bao gio hien len man hinh. Day rat co the la
+                // nguyen nhan chinh khien app "khong doc duoc gi ca".
+                onDebugInfo?.invoke("", "Loi OCR: ${e.javaClass.simpleName}: ${e.message}")
             }
             .addOnCompleteListener {
                 // Luôn đóng imageProxy dù thành công hay lỗi, nếu không camera sẽ bị đơ

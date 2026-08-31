@@ -83,9 +83,15 @@ class MainActivity : AppCompatActivity() {
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
 
-            val phoneAnalyzer = PhoneNumberAnalyzer(requiredStableFrames = 3) { number ->
-                runOnUiThread { showConfirmationCard(number) }
-            }
+            val phoneAnalyzer = PhoneNumberAnalyzer(
+                requiredStableFrames = 3,
+                onStableNumberDetected = { number ->
+                    runOnUiThread { showConfirmationCard(number) }
+                },
+                onDebugInfo = { rawText, error ->
+                    runOnUiThread { updateDebugLabel(rawText, error) }
+                }
+            )
             analyzer = phoneAnalyzer
             imageAnalysis.setAnalyzer(cameraExecutor, phoneAnalyzer)
 
@@ -100,6 +106,14 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Không mở được camera: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun updateDebugLabel(rawText: String, error: String?) {
+        binding.tvDebug.text = when {
+            error != null -> "LỖI: $error"
+            rawText.isBlank() -> "OCR: (không đọc được chữ nào trong khung hình)"
+            else -> "OCR đọc được:\n${rawText.take(200)}"
+        }
     }
 
     private fun showConfirmationCard(number: String) {

@@ -16,6 +16,26 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Nhãn debug tạm thời: hiện chữ OCR đọc được (hoặc lỗi) mỗi khung hình,
+         để chẩn đoán vì sao chưa nhận diện được số. Đặt SAU PreviewView
+         trong file XML này để nó vẽ đè lên trên camera (không bị che mất).
+         Có thể ẩn/xoá TextView này sau khi xác định xong nguyên nhân. -->
+    <TextView
+        android:id="@+id/tvDebug"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:maxLines="4"
+        android:ellipsize="end"
+        android:textColor="#FFFFEB3B"
+        android:textSize="11sp"
+        android:fontFamily="monospace"
+        android:padding="8dp"
+        android:background="#CC000000"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        tools:text="OCR: ..." />
+
     <!-- Vùng khung gợi ý đưa số điện thoại vào giữa -->
     <View
         android:id="@+id/scanFrame"
