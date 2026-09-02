@@ -1,40 +1,71 @@
 package com.dieppham.phonescanner
 
-/**
- * Trích xuất số điện thoại kiểu Việt Nam từ text do OCR đọc được.
- *
- * Hỗ trợ:
- *  - Di động 10 số: 03x/05x/07x/08x/09x + 7 số  (vd: 0912345678)
- *  - Dạng +84 hoặc 84 thay cho số 0 đầu          (vd: +84912345678)
- *  - Cố định có mã vùng 2 số: 02x + 8 số          (vd: 02438123456)
- *
- * OCR hay chèn khoảng trắng/dấu chấm/gạch ngang giữa các cụm số
- * (vd: "091.234.5678" hay "0912 345 678") nên ta xoá hết ký tự phân
- * cách trước khi so khớp regex.
- */
+import com.google.mlkit.vision.text.Text
+
 object PhoneNumberExtractor {
 
-    // Cho phép số, khoảng trắng, dấu chấm, gạch ngang, gạch chéo, ngoặc, dấu +
-    // giữa các nhóm chữ số khi quét thô từ text gốc.
     private val RAW_CANDIDATE_REGEX = Regex("""[+]?[\d][\d\s.\-()]{7,16}\d""")
-
-    // Sau khi đã làm sạch (chỉ còn chữ số, có thể có dấu + ở đầu)
-    private val MOBILE_REGEX = Regex("""^(?:\+?84|0)(3|5|7|8|9)(\d{8})$""")
+    private val MOBILE_REGEX  = Regex("""^(?:\+?84|0)(3|5|7|8|9)(\d{8})$""")
     private val LANDLINE_REGEX = Regex("""^(?:\+?84|0)(2\d)(\d{7,8})$""")
 
-    /**
-     * Quét toàn bộ text OCR, trả về số điện thoại VN hợp lệ đầu tiên tìm thấy
-     * (đã chuẩn hoá về dạng bắt đầu bằng 0), hoặc null nếu không có.
-     */
+    // -------------------------------------------------------------------------
+    // API cũ - vẫn giữ để tương thích debug label
+    // -------------------------------------------------------------------------
     fun extractFirstValidNumber(ocrText: String): String? {
         for (match in RAW_CANDIDATE_REGEX.findAll(ocrText)) {
-            val cleaned = cleanCandidate(match.value)
-            val normalized = normalizeIfValid(cleaned)
+            val normalized = normalizeIfValid(cleanCandidate(match.value))
             if (normalized != null) return normalized
         }
         return null
     }
 
+    // -------------------------------------------------------------------------
+    // API mới: trả về số hợp lệ CÓ TỌA ĐỘ tâm (centerY tính theo tỉ lệ 0..1
+    // trong ảnh) để caller chọn số nào gần tâm khung hình nhất.
+    //
+    // ML Kit trả kết quả theo cấu trúc: VisionText → Block → Line → Element.
+    // Mỗi Line có boundingBox -> ta dùng centerY của Line để so sánh vị trí.
+    // -------------------------------------------------------------------------
+    data class NumberCandidate(val number: String, val centerYRatio: Float)
+
+    fun extractCandidatesWithPosition(
+        visionText: Text,
+        imageHeight: Int
+    ): List<NumberCandidate> {
+        val results = mutableListOf<NumberCandidate>()
+
+        for (block in visionText.textBlocks) {
+            for (line in block.lines) {
+                // Thử khớp toàn bộ text của dòng này
+                val lineText = line.text
+                for (match in RAW_CANDIDATE_REGEX.findAll(lineText)) {
+                    val normalized = normalizeIfValid(cleanCandidate(match.value))
+                    if (normalized != null) {
+                        val box = line.boundingBox
+                        val centerY = if (box != null && imageHeight > 0)
+                            box.exactCenterY() / imageHeight
+                        else
+                            0.5f   // fallback: coi như ở giữa nếu không có bbox
+                        results += NumberCandidate(normalized, centerY)
+                        break   // chỉ lấy 1 số mỗi dòng, tránh đếm trùng
+                    }
+                }
+            }
+        }
+        return results
+    }
+
+    // -------------------------------------------------------------------------
+    // Chọn số gần tâm ảnh nhất (centerYRatio gần 0.5 nhất).
+    // Khung xanh hướng dẫn nằm ở khoảng giữa màn hình, nên số nào có tọa độ
+    // dọc gần 0.5 nhất chính là số đang nằm trong khung xanh.
+    // -------------------------------------------------------------------------
+    fun pickClosestToCenter(candidates: List<NumberCandidate>): String? {
+        if (candidates.isEmpty()) return null
+        return candidates.minByOrNull { Math.abs(it.centerYRatio - 0.5f) }?.number
+    }
+
+    // -------------------------------------------------------------------------
     private fun cleanCandidate(raw: String): String {
         val hasPlus = raw.trimStart().startsWith("+")
         val digitsOnly = raw.filter { it.isDigit() }
@@ -43,24 +74,18 @@ object PhoneNumberExtractor {
 
     private fun normalizeIfValid(cleaned: String): String? {
         MOBILE_REGEX.find(cleaned)?.let { m ->
-            val head = m.groupValues[1]
-            val tail = m.groupValues[2]
-            return "0$head$tail"
+            return "0${m.groupValues[1]}${m.groupValues[2]}"
         }
         LANDLINE_REGEX.find(cleaned)?.let { m ->
-            val area = m.groupValues[1]
-            val tail = m.groupValues[2]
-            return "0$area$tail"
+            return "0${m.groupValues[1]}${m.groupValues[2]}"
         }
         return null
     }
 
-    /** Định dạng đẹp để hiển thị, vd: 0912345678 -> 0912 345 678 */
     fun formatForDisplay(number: String): String {
         return when (number.length) {
-            10 -> "${number.substring(0, 4)} ${number.substring(4, 7)} ${number.substring(7)}"
-            11 -> "${number.substring(0, 4)} ${number.substring(4, 7)} ${number.substring(7)}"
-            else -> number
+            10, 11 -> "${number.substring(0, 4)} ${number.substring(4, 7)} ${number.substring(7)}"
+            else   -> number
         }
     }
 }
