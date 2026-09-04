@@ -4,5 +4,6 @@
     <color name="accent_green">#FF2E7D32</color>
     <color name="accent_red">#FFC62828</color>
     <color name="card_bg">#EE1C1C1E</color>
-    <color name="frame_color">#FF4CAF50</color>
+    <color name="frame_color">#FF00E5FF</color>
+    <color name="ic_launcher_background">#2E7D32</color>
 </resources>

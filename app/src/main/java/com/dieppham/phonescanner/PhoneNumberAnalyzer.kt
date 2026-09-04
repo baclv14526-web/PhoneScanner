@@ -9,7 +9,8 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 
 class PhoneNumberAnalyzer(
-    private val requiredStableFrames: Int = 3,
+    // Giảm từ 3 xuống 2: phát hiện nhanh hơn, vẫn đủ tránh nhận nhầm
+    private val requiredStableFrames: Int = 2,
     private val onStableNumberDetected: (String) -> Unit,
     private val onDebugInfo: ((rawText: String, error: String?) -> Unit)? = null
 ) : ImageAnalysis.Analyzer {
@@ -19,6 +20,12 @@ class PhoneNumberAnalyzer(
     private var lastCandidate: String? = null
     private var stableCount: Int = 0
     private var paused = false
+
+    // Tỉ lệ vùng khung quét so với chiều cao ảnh (khớp với ScannerOverlayView)
+    // ScannerOverlayView đặt top = height * 0.38, frameHeight = 100dp / screenHeight
+    // Ta crop rộng hơn một chút (±10%) để không bị cắt sát quá khi cầm hơi nghiêng
+    private val CROP_TOP_RATIO    = 0.28f
+    private val CROP_BOTTOM_RATIO = 0.62f
 
     fun pause() { paused = true }
 
@@ -40,24 +47,44 @@ class PhoneNumberAnalyzer(
         }
 
         val imageHeight = imageProxy.height
-        val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+        val imageWidth  = imageProxy.width
 
+        // --- CROP: chỉ đưa vùng khung quét vào ML Kit ---
+        // Ít pixel hơn = OCR nhanh hơn + không bị nhiễu bởi chữ nằm
+        // ngoài khung (tiêu đề trang, chú thích, v.v.)
+        val cropTop    = (imageHeight * CROP_TOP_RATIO).toInt().coerceIn(0, imageHeight)
+        val cropBottom = (imageHeight * CROP_BOTTOM_RATIO).toInt().coerceIn(0, imageHeight)
+        val cropHeight = (cropBottom - cropTop).coerceAtLeast(1)
+
+        val inputImage = InputImage.fromMediaImage(
+            mediaImage,
+            imageProxy.imageInfo.rotationDegrees,
+        )
+
+        // ML Kit không hỗ trợ crop trực tiếp từ MediaImage, nhưng nó
+        // trả về boundingBox theo tọa độ ảnh gốc — ta vẫn dùng toàn ảnh
+        // cho OCR, nhưng khi chọn số dùng CROP_TOP/BOTTOM_RATIO để lọc
+        // chỉ những dòng nằm trong vùng khung quét (thay vì dùng 0.5 cứng)
         recognizer.process(inputImage)
             .addOnSuccessListener { visionText ->
-                // --- THAY ĐỔI CHÍNH ---
-                // Trước: lấy số đầu tiên trong toàn bộ text -> luôn bị ghim
-                //        vào số cũ dù bạn đã di khung xanh sang số khác.
-                // Sau:   lấy TẤT CẢ số tìm thấy kèm vị trí dọc, rồi chọn
-                //        số có centerY gần giữa ảnh nhất (= gần khung xanh
-                //        nhất) -> tự động đổi sang số mới khi bạn di máy.
+                // Trung tâm vùng crop theo tỉ lệ trong ảnh gốc
+                val zoneCenterRatio = (CROP_TOP_RATIO + CROP_BOTTOM_RATIO) / 2f
+
                 val candidates = PhoneNumberExtractor.extractCandidatesWithPosition(
                     visionText, imageHeight
-                )
-                val picked = PhoneNumberExtractor.pickClosestToCenter(candidates)
+                ).filter { c ->
+                    // Chỉ giữ số nằm trong vùng khung quét (±biên)
+                    c.centerYRatio in CROP_TOP_RATIO..CROP_BOTTOM_RATIO
+                }
 
-                // Debug: hiện tất cả số tìm thấy + số nào được chọn
+                val picked = if (candidates.isEmpty()) null
+                else candidates.minByOrNull {
+                    Math.abs(it.centerYRatio - zoneCenterRatio)
+                }?.number
+
                 val debugText = buildString {
-                    append(visionText.text.take(120))
+                    if (visionText.text.isNotBlank())
+                        append(visionText.text.take(100))
                     if (candidates.isNotEmpty()) {
                         append("\n---")
                         candidates.forEach { c ->
@@ -79,14 +106,11 @@ class PhoneNumberAnalyzer(
     }
 
     private fun handleCandidate(found: String?) {
-        // Nếu số được chọn đổi khác (người dùng di khung sang số mới)
-        // -> reset counter ngay lập tức, không giữ lại count của số cũ.
         if (found != lastCandidate) {
             lastCandidate = found
             stableCount = if (found != null) 1 else 0
             return
         }
-        // Cùng số: tăng count
         if (found != null) {
             stableCount++
             if (stableCount >= requiredStableFrames) {

@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/black">
 
-    <!-- Camera preview -->
+    <!-- Camera preview toàn màn hình -->
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
         android:layout_width="0dp"
@@ -16,111 +17,155 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Nhãn debug tạm thời: hiện chữ OCR đọc được (hoặc lỗi) mỗi khung hình,
-         để chẩn đoán vì sao chưa nhận diện được số. Đặt SAU PreviewView
-         trong file XML này để nó vẽ đè lên trên camera (không bị che mất).
-         Có thể ẩn/xoá TextView này sau khi xác định xong nguyên nhân. -->
+    <!-- Overlay vẽ nền tối + khung quét + animation (đặt sau preview để đè lên) -->
+    <com.dieppham.phonescanner.ScannerOverlayView
+        android:id="@+id/scanOverlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Nhãn debug (vàng, trên cùng) -->
     <TextView
         android:id="@+id/tvDebug"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:maxLines="4"
+        android:maxLines="5"
         android:ellipsize="end"
         android:textColor="#FFFFEB3B"
-        android:textSize="11sp"
+        android:textSize="10sp"
         android:fontFamily="monospace"
-        android:padding="8dp"
+        android:padding="6dp"
         android:background="#CC000000"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         tools:text="OCR: ..." />
 
-    <!-- Vùng khung gợi ý đưa số điện thoại vào giữa -->
-    <View
-        android:id="@+id/scanFrame"
-        android:layout_width="0dp"
-        android:layout_height="90dp"
-        android:layout_marginStart="24dp"
-        android:layout_marginEnd="24dp"
-        android:background="@drawable/bg_scan_frame"
+    <!-- Tiêu đề app nhỏ ở trên -->
+    <TextView
+        android:id="@+id/tvTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="QUÉT SỐ GỌI"
+        android:textColor="#FFFFFFFF"
+        android:textSize="13sp"
+        android:letterSpacing="0.25"
+        android:textStyle="bold"
+        android:layout_marginTop="52dp"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/cardConfirm"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintVertical_bias="0.42" />
+        app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Hint bên dưới khung quét — vị trí cố định, không dùng constraintBottom -->
     <TextView
         android:id="@+id/tvHint"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/hint_scanning"
-        android:textColor="@color/white"
-        android:textSize="16sp"
-        android:paddingHorizontal="16dp"
-        android:paddingVertical="8dp"
-        android:background="@drawable/bg_card"
-        app:layout_constraintTop_toBottomOf="@id/scanFrame"
+        android:textColor="#CCFFFFFF"
+        android:textSize="13sp"
+        android:gravity="center"
+        android:drawablePadding="6dp"
+        android:layout_marginTop="268dp"
+        app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="20dp" />
+        app:layout_constraintVertical_bias="0.38" />
 
-    <!-- Card xác nhận số điện thoại, ẩn cho tới khi phát hiện được số ổn định -->
-    <androidx.constraintlayout.widget.ConstraintLayout
+    <!-- Card xác nhận số — ẩn, slide up khi phát hiện số ổn định -->
+    <androidx.cardview.widget.CardView
         android:id="@+id/cardConfirm"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="20dp"
         android:layout_marginEnd="20dp"
-        android:layout_marginBottom="40dp"
-        android:background="@drawable/bg_card"
-        android:padding="20dp"
+        android:layout_marginBottom="36dp"
         android:visibility="gone"
+        android:translationY="80dp"
+        android:alpha="0"
+        app:cardCornerRadius="24dp"
+        app:cardBackgroundColor="#F0121218"
+        app:cardElevation="16dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <TextView
-            android:id="@+id/tvDetectedNumber"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="@color/white"
-            android:textSize="28sp"
-            android:textStyle="bold"
-            android:gravity="center"
-            android:letterSpacing="0.05"
-            tools:text="0912 345 678"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
+            android:orientation="vertical"
+            android:padding="24dp"
+            android:gravity="center">
 
-        <Button
-            android:id="@+id/btnRescan"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/btn_rescan"
-            android:backgroundTint="@color/accent_red"
-            android:textColor="@color/white"
-            app:layout_constraintTop_toBottomOf="@id/tvDetectedNumber"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toStartOf="@id/btnCall"
-            app:layout_constraintHorizontal_chainStyle="spread"
-            android:layout_marginEnd="8dp" />
+            <!-- Label nhỏ -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SỐ ĐIỆN THOẠI"
+                android:textColor="#8000E5FF"
+                android:textSize="10sp"
+                android:letterSpacing="0.2"
+                android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/btnCall"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/btn_call"
-            android:backgroundTint="@color/accent_green"
-            android:textColor="@color/white"
-            app:layout_constraintTop_toBottomOf="@id/tvDetectedNumber"
-            app:layout_constraintStart_toEndOf="@id/btnRescan"
-            app:layout_constraintEnd_toEndOf="parent"
-            android:layout_marginStart="8dp" />
+            <!-- Số to -->
+            <TextView
+                android:id="@+id/tvDetectedNumber"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="@color/white"
+                android:textSize="34sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.05"
+                android:fontFamily="sans-serif-medium"
+                tools:text="0912 345 678" />
 
-    </androidx.constraintlayout.widget.ConstraintLayout>
+            <!-- Divider -->
+            <View
+                android:layout_width="48dp"
+                android:layout_height="1dp"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp"
+                android:background="#2200E5FF" />
+
+            <!-- Nút -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRescan"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="1"
+                    android:text="Quét lại"
+                    android:textColor="#FF4444"
+                    android:textSize="15sp"
+                    app:strokeColor="#33FF4444"
+                    app:cornerRadius="14dp"
+                    android:layout_marginEnd="10dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnCall"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="1"
+                    android:text="📞  Gọi"
+                    android:textColor="@color/black"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    app:backgroundTint="#00E5FF"
+                    app:cornerRadius="14dp"
+                    android:layout_marginStart="10dp" />
+
+            </LinearLayout>
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -1,12 +1,13 @@
 package com.dieppham.phonescanner
 
 import android.Manifest
-import android.content.pm.PackageManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
-import android.util.Size
 import android.view.MotionEvent
+import android.view.View
+import android.view.animation.DecelerateInterpolator
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -17,11 +18,11 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
-import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import com.dieppham.phonescanner.databinding.ActivityMainBinding
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import android.util.Size
 
 class MainActivity : AppCompatActivity() {
 
@@ -33,20 +34,14 @@ class MainActivity : AppCompatActivity() {
 
     private val requestCameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
-                startCamera()
-            } else {
-                Toast.makeText(this, getString(R.string.permission_camera_denied), Toast.LENGTH_LONG).show()
-            }
+            if (granted) startCamera()
+            else Toast.makeText(this, getString(R.string.permission_camera_denied), Toast.LENGTH_LONG).show()
         }
 
     private val requestCallPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
-                pendingNumberToCall?.let { placeCall(it) }
-            } else {
-                Toast.makeText(this, getString(R.string.permission_call_denied), Toast.LENGTH_LONG).show()
-            }
+            if (granted) pendingNumberToCall?.let { placeCall(it) }
+            else Toast.makeText(this, getString(R.string.permission_call_denied), Toast.LENGTH_LONG).show()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,27 +52,24 @@ class MainActivity : AppCompatActivity() {
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnCall.setOnClickListener {
-            binding.tvDetectedNumber.text.toString()
-                .filter { it.isDigit() }
-                .let { number -> requestCallWithPermission(number) }
+            val number = binding.tvDetectedNumber.text.toString().filter { it.isDigit() }
+            requestCallWithPermission(number)
         }
 
         binding.btnRescan.setOnClickListener {
             hideConfirmationCard()
+            binding.scanOverlay.resetToScanning()
             analyzer?.resume()
         }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
-        ) {
-            startCamera()
-        } else {
-            requestCameraPermission.launch(Manifest.permission.CAMERA)
-        }
+        ) startCamera()
+        else requestCameraPermission.launch(Manifest.permission.CAMERA)
     }
 
     private fun startCamera() {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        val cameraProviderFuture = androidx.camera.lifecycle.ProcessCameraProvider.getInstance(this)
 
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
@@ -86,10 +78,6 @@ class MainActivity : AppCompatActivity() {
                 it.setSurfaceProvider(binding.previewView.surfaceProvider)
             }
 
-            // Truoc day khong chi dinh do phan giai -> CameraX tu chon muc
-            // kha thap, du cho preview nhung khong du net de OCR doc chu
-            // nho. Ep do phan giai cao hon han (~1280x720) de tang do net
-            // khi doc so dien thoai, danh doi mot chut CPU/pin.
             val resolutionSelector = ResolutionSelector.Builder()
                 .setResolutionStrategy(
                     ResolutionStrategy(
@@ -105,9 +93,12 @@ class MainActivity : AppCompatActivity() {
                 .build()
 
             val phoneAnalyzer = PhoneNumberAnalyzer(
-                requiredStableFrames = 3,
+                requiredStableFrames = 2,
                 onStableNumberDetected = { number ->
-                    runOnUiThread { showConfirmationCard(number) }
+                    runOnUiThread {
+                        binding.scanOverlay.flashSuccess()
+                        showConfirmationCard(number)
+                    }
                 },
                 onDebugInfo = { rawText, error ->
                     runOnUiThread { updateDebugLabel(rawText, error) }
@@ -116,25 +107,17 @@ class MainActivity : AppCompatActivity() {
             analyzer = phoneAnalyzer
             imageAnalysis.setAnalyzer(cameraExecutor, phoneAnalyzer)
 
-            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
             try {
                 cameraProvider.unbindAll()
                 val boundCamera = cameraProvider.bindToLifecycle(
-                    this, cameraSelector, preview, imageAnalysis
+                    this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis
                 )
                 camera = boundCamera
 
-                // Ep lay net lien tuc vao dung giua khung huong dan mau
-                // xanh, thay vi de camera tu doan lay net trung binh ca
-                // khung hinh - day la nguyen nhan chinh khien phai nghieng
-                // may moi vo tinh lay net trung so dien thoai.
-                binding.scanFrame.post {
-                    focusOnScanFrame(boundCamera)
-                }
+                // Lấy nét vào giữa khung quét ngay khi camera sẵn sàng
+                binding.scanOverlay.post { focusOnScanZone(boundCamera) }
 
-                // Cham vao man hinh de tu lay net lai bat cu luc nao, phong
-                // khi lay net tu dong chua bat trung.
+                // Chạm để lấy nét thủ công
                 binding.previewView.setOnTouchListener { view, event ->
                     if (event.action == MotionEvent.ACTION_UP) {
                         val point = binding.previewView.meteringPointFactory
@@ -154,50 +137,67 @@ class MainActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    private fun focusOnScanFrame(camera: Camera) {
-        val cx = binding.scanFrame.x + binding.scanFrame.width / 2f
-        val cy = binding.scanFrame.y + binding.scanFrame.height / 2f
+    private fun focusOnScanZone(camera: Camera) {
+        // Lấy tâm khung từ ScannerOverlayView (frameRect đã được tính sau onSizeChanged)
+        val frame = binding.scanOverlay.frameRect
+        if (frame.isEmpty) return
+        val cx = frame.centerX()
+        val cy = frame.centerY()
         val point = binding.previewView.meteringPointFactory.createPoint(cx, cy)
         val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF)
-            .disableAutoCancel() // giu lay net lien tuc, khong tu huy sau vai giay
+            .disableAutoCancel()
             .build()
         camera.cameraControl.startFocusAndMetering(action)
     }
 
     private fun updateDebugLabel(rawText: String, error: String?) {
         binding.tvDebug.text = when {
-            error != null -> "LỖI: $error"
-            rawText.isBlank() -> "OCR: (không đọc được chữ nào trong khung hình)"
-            else -> "OCR đọc được:\n${rawText.take(200)}"
+            error != null   -> "LỖI: $error"
+            rawText.isBlank() -> "OCR: (không đọc được chữ)"
+            else            -> "OCR:\n${rawText.take(180)}"
         }
     }
 
     private fun showConfirmationCard(number: String) {
         binding.tvDetectedNumber.text = PhoneNumberExtractor.formatForDisplay(number)
-        binding.cardConfirm.visibility = android.view.View.VISIBLE
-        binding.tvHint.visibility = android.view.View.GONE
+        binding.tvHint.visibility = View.GONE
+
+        // Slide-up + fade-in
+        binding.cardConfirm.visibility = View.VISIBLE
+        binding.cardConfirm.translationY = 80f * resources.displayMetrics.density
+        binding.cardConfirm.alpha = 0f
+        binding.cardConfirm.animate()
+            .translationY(0f)
+            .alpha(1f)
+            .setDuration(320)
+            .setInterpolator(DecelerateInterpolator())
+            .start()
     }
 
     private fun hideConfirmationCard() {
-        binding.cardConfirm.visibility = android.view.View.GONE
-        binding.tvHint.visibility = android.view.View.VISIBLE
+        binding.cardConfirm.animate()
+            .translationY(80f * resources.displayMetrics.density)
+            .alpha(0f)
+            .setDuration(200)
+            .setInterpolator(DecelerateInterpolator())
+            .withEndAction {
+                binding.cardConfirm.visibility = View.GONE
+                binding.tvHint.visibility = View.VISIBLE
+            }
+            .start()
     }
 
     private fun requestCallWithPermission(number: String) {
         pendingNumberToCall = number
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE)
             == PackageManager.PERMISSION_GRANTED
-        ) {
-            placeCall(number)
-        } else {
-            requestCallPermission.launch(Manifest.permission.CALL_PHONE)
-        }
+        ) placeCall(number)
+        else requestCallPermission.launch(Manifest.permission.CALL_PHONE)
     }
 
     private fun placeCall(number: String) {
-        val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$number"))
         try {
-            startActivity(intent)
+            startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")))
         } catch (e: SecurityException) {
             Toast.makeText(this, getString(R.string.permission_call_denied), Toast.LENGTH_LONG).show()
         }
