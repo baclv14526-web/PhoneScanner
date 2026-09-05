@@ -27,7 +27,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Debug label -->
+    <!-- Debug label + nút toggle (ẩn sau 5s, bật lại bằng nút nhỏ góc trái) -->
     <TextView
         android:id="@+id/tvDebug"
         android:layout_width="0dp"
@@ -37,12 +37,43 @@
         android:textColor="#FFFFEB3B"
         android:textSize="10sp"
         android:fontFamily="monospace"
-        android:padding="6dp"
+        android:paddingStart="6dp"
+        android:paddingEnd="32dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
         android:background="#CC000000"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         tools:text="OCR: ..." />
+
+    <!-- Nút đóng debug (×) nằm góc phải của dải vàng -->
+    <TextView
+        android:id="@+id/btnDebugToggle"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:gravity="center"
+        android:text="×"
+        android:textColor="#FFFFEB3B"
+        android:textSize="18sp"
+        android:background="#CC000000"
+        app:layout_constraintTop_toTopOf="@id/tvDebug"
+        app:layout_constraintBottom_toBottomOf="@id/tvDebug"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Nút nhỏ "⚙" hiện khi debug đang ẩn, bấm để bật lại -->
+    <TextView
+        android:id="@+id/btnDebugShow"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:gravity="center"
+        android:text="⚙"
+        android:textSize="14sp"
+        android:textColor="#66FFFFFF"
+        android:background="#55000000"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
 
     <!-- Tiêu đề -->
     <TextView
@@ -86,6 +117,22 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Nút torch thủ công — góc dưới trái, phía trên card xác nhận -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnTorch"
+        style="@style/Widget.MaterialComponents.Button.TextButton"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:text="🔦"
+        android:textSize="22sp"
+        android:alpha="0.45"
+        android:padding="0dp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/cardConfirm"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_marginStart="20dp"
+        android:layout_marginBottom="12dp" />
 
     <!-- Card xác nhận số -->
     <androidx.cardview.widget.CardView

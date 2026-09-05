@@ -3,6 +3,10 @@ package com.dieppham.phonescanner
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.net.Uri
 import android.os.Bundle
 import android.util.Size
@@ -39,6 +43,21 @@ class MainActivity : AppCompatActivity() {
     // Số hiện đang hiển thị trên card xác nhận (dạng chuẩn, không format)
     private var confirmedNumber: String = ""
 
+    // --- Đèn flash / ánh sáng ---
+    private lateinit var sensorManager: SensorManager
+    private var lightSensor: Sensor? = null
+    private var torchOn = false
+    private var torchManualOverride = false   // true = người dùng tự bật/tắt thủ công
+    private var lastLux = Float.MAX_VALUE
+
+    companion object {
+        // Ngưỡng lux: dưới đây thì coi là tối, bật torch tự động.
+        // ~10 lux = phòng rất tối; ~50 lux = phòng đèn yếu; ~200 lux = đủ sáng trong nhà
+        // Dùng 2 ngưỡng (hysteresis) để tránh nhấp nháy torch khi lux dao động sát ngưỡng.
+        private const val LUX_DARK_THRESHOLD   = 50f   // tối hơn này → bật torch tự động
+        private const val LUX_BRIGHT_THRESHOLD = 80f   // sáng hơn này → tắt torch tự động
+    }
+
     private val requestCameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) startCamera()
@@ -58,10 +77,16 @@ class MainActivity : AppCompatActivity() {
 
         dao = AppDatabase.get(this).callRecordDao()
 
+        setupDebugLabel()
+        setupLightSensor()
+
         // Nút mở lịch sử (góc trên phải)
         binding.btnHistory.setOnClickListener {
             startActivity(Intent(this, HistoryActivity::class.java))
         }
+
+        // Nút torch thủ công
+        binding.btnTorch.setOnClickListener { toggleTorchManual() }
 
         binding.btnCall.setOnClickListener {
             requestCallWithPermission(confirmedNumber)
@@ -77,6 +102,51 @@ class MainActivity : AppCompatActivity() {
             == PackageManager.PERMISSION_GRANTED
         ) startCamera()
         else requestCameraPermission.launch(Manifest.permission.CAMERA)
+    }
+
+    // -------------------------------------------------------------------------
+    // Debug label: tự ẩn sau 5 giây, bật lại bằng nút ⚙
+    // -------------------------------------------------------------------------
+
+    private val hideDebugRunnable = Runnable { hideDebug() }
+
+    private fun setupDebugLabel() {
+        // Tự ẩn sau 5 giây kể từ lúc mở app
+        binding.tvDebug.postDelayed(hideDebugRunnable, 5_000)
+
+        // Bấm × để ẩn ngay lập tức
+        binding.btnDebugToggle.setOnClickListener {
+            binding.tvDebug.removeCallbacks(hideDebugRunnable)
+            hideDebug()
+        }
+
+        // Bấm ⚙ để bật lại (ẩn lại sau 10 giây)
+        binding.btnDebugShow.setOnClickListener {
+            showDebug()
+            binding.tvDebug.postDelayed(hideDebugRunnable, 10_000)
+        }
+    }
+
+    private fun hideDebug() {
+        binding.tvDebug.animate().alpha(0f).setDuration(400)
+            .withEndAction { binding.tvDebug.visibility = View.GONE }
+            .start()
+        binding.btnDebugToggle.animate().alpha(0f).setDuration(400)
+            .withEndAction { binding.btnDebugToggle.visibility = View.GONE }
+            .start()
+        binding.btnDebugShow.visibility = View.VISIBLE
+        binding.btnDebugShow.alpha = 0f
+        binding.btnDebugShow.animate().alpha(1f).setDuration(400).start()
+    }
+
+    private fun showDebug() {
+        binding.tvDebug.visibility = View.VISIBLE
+        binding.tvDebug.animate().alpha(1f).setDuration(300).start()
+        binding.btnDebugToggle.visibility = View.VISIBLE
+        binding.btnDebugToggle.animate().alpha(1f).setDuration(300).start()
+        binding.btnDebugShow.animate().alpha(0f).setDuration(300)
+            .withEndAction { binding.btnDebugShow.visibility = View.GONE }
+            .start()
     }
 
     private fun startCamera() {
@@ -191,7 +261,6 @@ class MainActivity : AppCompatActivity() {
     private fun doCall(number: String) {
         try {
             startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")))
-            // Lưu lịch sử ngay khi bấm Gọi
             lifecycleScope.launch {
                 dao.insert(
                     CallRecord(
@@ -206,8 +275,87 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Đèn flash tự động theo độ sáng môi trường
+    // -------------------------------------------------------------------------
+
+    private val lightSensorListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            val lux = event.values[0]
+            lastLux = lux
+            if (torchManualOverride) return   // người dùng đang tự điều khiển, không can thiệp
+
+            when {
+                lux < LUX_DARK_THRESHOLD   && !torchOn -> setTorch(true,  auto = true)
+                lux > LUX_BRIGHT_THRESHOLD && torchOn  -> setTorch(false, auto = true)
+            }
+        }
+        override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) = Unit
+    }
+
+    private fun setupLightSensor() {
+        sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
+        lightSensor   = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT)
+
+        if (lightSensor == null) {
+            // Thiết bị không có cảm biến ánh sáng — chỉ dùng nút thủ công
+            binding.btnTorch.visibility = View.VISIBLE
+            updateTorchButton()
+        }
+        // Nếu có sensor, nút torch vẫn hiện nhưng nhỏ hơn (dùng để override)
+        binding.btnTorch.visibility = View.VISIBLE
+        updateTorchButton()
+    }
+
+    private fun setTorch(on: Boolean, auto: Boolean = false) {
+        if (torchOn == on) return
+        torchOn = on
+        camera?.cameraControl?.enableTorch(on)
+        if (!auto) {
+            // Khi người dùng bấm thủ công: set override, tự tắt override sau 60s
+            torchManualOverride = true
+            binding.btnTorch.removeCallbacks(clearOverrideRunnable)
+            binding.btnTorch.postDelayed(clearOverrideRunnable, 60_000)
+        }
+        updateTorchButton()
+    }
+
+    private val clearOverrideRunnable = Runnable {
+        // Sau 60 giây tự trả quyền điều khiển về cho cảm biến ánh sáng
+        torchManualOverride = false
+    }
+
+    private fun toggleTorchManual() {
+        setTorch(!torchOn, auto = false)
+    }
+
+    private fun updateTorchButton() {
+        binding.btnTorch.text = if (torchOn) "🔦" else "🔦"
+        binding.btnTorch.alpha = if (torchOn) 1f else 0.45f
+    }
+
+    override fun onResume() {
+        super.onResume()
+        lightSensor?.let {
+            sensorManager.registerListener(
+                lightSensorListener, it,
+                SensorManager.SENSOR_DELAY_NORMAL   // ~5 lần/giây, đủ dùng, không tốn pin
+            )
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Tắt torch và dừng cảm biến khi app ra nền
+        sensorManager.unregisterListener(lightSensorListener)
+        if (torchOn) setTorch(false, auto = true)
+        torchManualOverride = false
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        binding.tvDebug.removeCallbacks(hideDebugRunnable)
+        binding.btnTorch.removeCallbacks(clearOverrideRunnable)
         cameraExecutor.shutdown()
     }
 
