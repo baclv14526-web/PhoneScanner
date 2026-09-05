@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'kotlin-kapt'
 }
 
 android {
@@ -12,21 +13,12 @@ android {
         minSdk 26
         targetSdk 35
 
-        // CI truyền số build (GITHUB_RUN_NUMBER) vào để mỗi lần build ra
-        // versionCode khác nhau -> cài đè bản mới lên bản cũ dễ dàng.
-        // Tách ra bien local truoc khi gan (thay vi viet inline
-        // "(a ?: b).toInteger()" ngay trong loi goi versionCode) de tranh
-        // loi "Value is null" khi AGP evaluate property trong luc build.
         def buildVersionCode = (System.getenv("BUILD_VERSION_CODE") ?: "1") as Integer
         def buildVersionName = System.getenv("BUILD_VERSION_NAME") ?: "1.0"
         versionCode buildVersionCode
         versionName buildVersionName
     }
 
-    // Cấu hình ký release. Đọc thông tin từ biến môi trường do workflow CI
-    // set sẵn (lấy từ GitHub Secrets) - KHÔNG bao giờ hardcode mật khẩu ở
-    // đây vì repo này là public. Nếu chạy build release ở máy local, xem
-    // hướng dẫn set biến môi trường trong README.md.
     signingConfigs {
         release {
             def ksPath = System.getenv("KEYSTORE_PATH")
@@ -43,10 +35,6 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // Chỉ gắn signingConfig release khi đủ biến môi trường (CI có set).
-            // Nếu build local mà chưa cấu hình keystore, Gradle sẽ dùng
-            // debug key mặc định để không bị lỗi build - nhưng APK đó sẽ
-            // không cài đè lên được bản ký bằng release key.
             if (System.getenv("KEYSTORE_PATH") != null) {
                 signingConfig signingConfigs.release
             }
@@ -73,6 +61,7 @@ dependencies {
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'androidx.cardview:cardview:1.0.0'
+    implementation 'androidx.activity:activity-ktx:1.9.3'
 
     // CameraX - pinned
     def camerax_version = "1.4.0"
@@ -81,6 +70,16 @@ dependencies {
     implementation "androidx.camera:camera-lifecycle:$camerax_version"
     implementation "androidx.camera:camera-view:$camerax_version"
 
-    // ML Kit on-device text recognition (Latin script - covers Vietnamese digits fine)
+    // ML Kit on-device text recognition
     implementation 'com.google.mlkit:text-recognition:16.0.1'
+
+    // Room - lưu lịch sử cuộc gọi
+    def room_version = "2.6.1"
+    implementation "androidx.room:room-runtime:$room_version"
+    implementation "androidx.room:room-ktx:$room_version"
+    kapt "androidx.room:room-compiler:$room_version"
+
+    // Coroutines - truy vấn DB bất đồng bộ
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
 }

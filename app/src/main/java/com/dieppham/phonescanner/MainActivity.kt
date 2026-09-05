@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.util.Size
 import android.view.MotionEvent
 import android.view.View
 import android.view.animation.DecelerateInterpolator
@@ -18,19 +19,25 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
+import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.dieppham.phonescanner.databinding.ActivityMainBinding
+import kotlinx.coroutines.launch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import android.util.Size
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var cameraExecutor: ExecutorService
+    private lateinit var dao: CallRecordDao
     private var analyzer: PhoneNumberAnalyzer? = null
     private var pendingNumberToCall: String? = null
     private var camera: Camera? = null
+
+    // Số hiện đang hiển thị trên card xác nhận (dạng chuẩn, không format)
+    private var confirmedNumber: String = ""
 
     private val requestCameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -40,7 +47,7 @@ class MainActivity : AppCompatActivity() {
 
     private val requestCallPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) pendingNumberToCall?.let { placeCall(it) }
+            if (granted) pendingNumberToCall?.let { doCall(it) }
             else Toast.makeText(this, getString(R.string.permission_call_denied), Toast.LENGTH_LONG).show()
         }
 
@@ -49,11 +56,15 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        cameraExecutor = Executors.newSingleThreadExecutor()
+        dao = AppDatabase.get(this).callRecordDao()
+
+        // Nút mở lịch sử (góc trên phải)
+        binding.btnHistory.setOnClickListener {
+            startActivity(Intent(this, HistoryActivity::class.java))
+        }
 
         binding.btnCall.setOnClickListener {
-            val number = binding.tvDetectedNumber.text.toString().filter { it.isDigit() }
-            requestCallWithPermission(number)
+            requestCallWithPermission(confirmedNumber)
         }
 
         binding.btnRescan.setOnClickListener {
@@ -69,24 +80,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startCamera() {
-        val cameraProviderFuture = androidx.camera.lifecycle.ProcessCameraProvider.getInstance(this)
-
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
-
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(binding.previewView.surfaceProvider)
             }
-
             val resolutionSelector = ResolutionSelector.Builder()
                 .setResolutionStrategy(
                     ResolutionStrategy(
                         Size(1280, 720),
                         ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
                     )
-                )
-                .build()
-
+                ).build()
             val imageAnalysis = ImageAnalysis.Builder()
                 .setResolutionSelector(resolutionSelector)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -113,18 +119,13 @@ class MainActivity : AppCompatActivity() {
                     this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis
                 )
                 camera = boundCamera
-
-                // Lấy nét vào giữa khung quét ngay khi camera sẵn sàng
                 binding.scanOverlay.post { focusOnScanZone(boundCamera) }
-
-                // Chạm để lấy nét thủ công
                 binding.previewView.setOnTouchListener { view, event ->
                     if (event.action == MotionEvent.ACTION_UP) {
-                        val point = binding.previewView.meteringPointFactory
+                        val pt = binding.previewView.meteringPointFactory
                             .createPoint(event.x, event.y)
                         val action = FocusMeteringAction.Builder(
-                            point,
-                            FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
+                            pt, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
                         ).build()
                         camera?.cameraControl?.startFocusAndMetering(action)
                         view.performClick()
@@ -138,66 +139,68 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun focusOnScanZone(camera: Camera) {
-        // Lấy tâm khung từ ScannerOverlayView (frameRect đã được tính sau onSizeChanged)
         val frame = binding.scanOverlay.frameRect
         if (frame.isEmpty) return
-        val cx = frame.centerX()
-        val cy = frame.centerY()
-        val point = binding.previewView.meteringPointFactory.createPoint(cx, cy)
-        val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF)
-            .disableAutoCancel()
-            .build()
+        val pt = binding.previewView.meteringPointFactory
+            .createPoint(frame.centerX(), frame.centerY())
+        val action = FocusMeteringAction.Builder(pt, FocusMeteringAction.FLAG_AF)
+            .disableAutoCancel().build()
         camera.cameraControl.startFocusAndMetering(action)
     }
 
     private fun updateDebugLabel(rawText: String, error: String?) {
         binding.tvDebug.text = when {
-            error != null   -> "LỖI: $error"
+            error != null     -> "LỖI: $error"
             rawText.isBlank() -> "OCR: (không đọc được chữ)"
-            else            -> "OCR:\n${rawText.take(180)}"
+            else              -> "OCR:\n${rawText.take(180)}"
         }
     }
 
     private fun showConfirmationCard(number: String) {
+        confirmedNumber = number
         binding.tvDetectedNumber.text = PhoneNumberExtractor.formatForDisplay(number)
         binding.tvHint.visibility = View.GONE
-
-        // Slide-up + fade-in
         binding.cardConfirm.visibility = View.VISIBLE
         binding.cardConfirm.translationY = 80f * resources.displayMetrics.density
         binding.cardConfirm.alpha = 0f
         binding.cardConfirm.animate()
-            .translationY(0f)
-            .alpha(1f)
-            .setDuration(320)
-            .setInterpolator(DecelerateInterpolator())
+            .translationY(0f).alpha(1f)
+            .setDuration(320).setInterpolator(DecelerateInterpolator())
             .start()
     }
 
     private fun hideConfirmationCard() {
         binding.cardConfirm.animate()
-            .translationY(80f * resources.displayMetrics.density)
-            .alpha(0f)
-            .setDuration(200)
-            .setInterpolator(DecelerateInterpolator())
+            .translationY(80f * resources.displayMetrics.density).alpha(0f)
+            .setDuration(200).setInterpolator(DecelerateInterpolator())
             .withEndAction {
                 binding.cardConfirm.visibility = View.GONE
                 binding.tvHint.visibility = View.VISIBLE
-            }
-            .start()
+            }.start()
     }
 
     private fun requestCallWithPermission(number: String) {
+        if (number.isBlank()) return
         pendingNumberToCall = number
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE)
             == PackageManager.PERMISSION_GRANTED
-        ) placeCall(number)
+        ) doCall(number)
         else requestCallPermission.launch(Manifest.permission.CALL_PHONE)
     }
 
-    private fun placeCall(number: String) {
+    private fun doCall(number: String) {
         try {
             startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")))
+            // Lưu lịch sử ngay khi bấm Gọi
+            lifecycleScope.launch {
+                dao.insert(
+                    CallRecord(
+                        phoneNumber   = number,
+                        displayNumber = PhoneNumberExtractor.formatForDisplay(number),
+                        timestamp     = System.currentTimeMillis()
+                    )
+                )
+            }
         } catch (e: SecurityException) {
             Toast.makeText(this, getString(R.string.permission_call_denied), Toast.LENGTH_LONG).show()
         }
@@ -206,5 +209,9 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
+    }
+
+    init {
+        cameraExecutor = Executors.newSingleThreadExecutor()
     }
 }

@@ -17,7 +17,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Overlay vẽ nền tối + khung quét + animation (đặt sau preview để đè lên) -->
+    <!-- Overlay vẽ nền tối + khung quét + animation -->
     <com.dieppham.phonescanner.ScannerOverlayView
         android:id="@+id/scanOverlay"
         android:layout_width="0dp"
@@ -27,7 +27,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Nhãn debug (vàng, trên cùng) -->
+    <!-- Debug label -->
     <TextView
         android:id="@+id/tvDebug"
         android:layout_width="0dp"
@@ -44,7 +44,7 @@
         app:layout_constraintEnd_toEndOf="parent"
         tools:text="OCR: ..." />
 
-    <!-- Tiêu đề app nhỏ ở trên -->
+    <!-- Tiêu đề -->
     <TextView
         android:id="@+id/tvTitle"
         android:layout_width="wrap_content"
@@ -59,7 +59,21 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Hint bên dưới khung quét — vị trí cố định, không dùng constraintBottom -->
+    <!-- Nút lịch sử (góc trên phải) -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnHistory"
+        style="@style/Widget.MaterialComponents.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="📋 Lịch sử"
+        android:textColor="#CCFFFFFF"
+        android:textSize="13sp"
+        android:layout_marginTop="44dp"
+        android:layout_marginEnd="12dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Hint -->
     <TextView
         android:id="@+id/tvHint"
         android:layout_width="wrap_content"
@@ -68,14 +82,12 @@
         android:textColor="#CCFFFFFF"
         android:textSize="13sp"
         android:gravity="center"
-        android:drawablePadding="6dp"
         android:layout_marginTop="268dp"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintVertical_bias="0.38" />
+        app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Card xác nhận số — ẩn, slide up khi phát hiện số ổn định -->
+    <!-- Card xác nhận số -->
     <androidx.cardview.widget.CardView
         android:id="@+id/cardConfirm"
         android:layout_width="0dp"
@@ -100,7 +112,6 @@
             android:padding="24dp"
             android:gravity="center">
 
-            <!-- Label nhỏ -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -110,7 +121,6 @@
                 android:letterSpacing="0.2"
                 android:textStyle="bold" />
 
-            <!-- Số to -->
             <TextView
                 android:id="@+id/tvDetectedNumber"
                 android:layout_width="wrap_content"
@@ -123,7 +133,6 @@
                 android:fontFamily="sans-serif-medium"
                 tools:text="0912 345 678" />
 
-            <!-- Divider -->
             <View
                 android:layout_width="48dp"
                 android:layout_height="1dp"
@@ -131,7 +140,6 @@
                 android:layout_marginBottom="16dp"
                 android:background="#2200E5FF" />
 
-            <!-- Nút -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -163,7 +171,6 @@
                     app:backgroundTint="#00E5FF"
                     app:cornerRadius="14dp"
                     android:layout_marginStart="10dp" />
-
             </LinearLayout>
         </LinearLayout>
     </androidx.cardview.widget.CardView>
