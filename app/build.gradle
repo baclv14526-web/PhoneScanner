@@ -1,7 +1,8 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
-    id 'kotlin-kapt'
+    // KSP thay the kapt - tuong thich voi Kotlin 2.x, nhanh hon kapt
+    id 'com.google.devtools.ksp'
 }
 
 android {
@@ -73,13 +74,13 @@ dependencies {
     // ML Kit on-device text recognition
     implementation 'com.google.mlkit:text-recognition:16.0.1'
 
-    // Room - lưu lịch sử cuộc gọi
+    // Room voi KSP (thay vi kapt) - tuong thich Kotlin 2.x
     def room_version = "2.6.1"
     implementation "androidx.room:room-runtime:$room_version"
     implementation "androidx.room:room-ktx:$room_version"
-    kapt "androidx.room:room-compiler:$room_version"
+    ksp "androidx.room:room-compiler:$room_version"
 
-    // Coroutines - truy vấn DB bất đồng bộ
+    // Coroutines
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
 }
