@@ -19,6 +19,19 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Nút tìm kiếm -->
+    <TextView
+        android:id="@+id/btnSearch"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:gravity="center"
+        android:text="🔍"
+        android:textSize="18sp"
+        app:layout_constraintTop_toTopOf="@id/toolbar"
+        app:layout_constraintBottom_toBottomOf="@id/toolbar"
+        app:layout_constraintEnd_toStartOf="@id/btnClearAll"
+        android:layout_marginEnd="4dp" />
+
     <!-- Xóa tất cả -->
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnClearAll"
@@ -31,18 +44,53 @@
         app:layout_constraintTop_toTopOf="@id/toolbar"
         app:layout_constraintBottom_toBottomOf="@id/toolbar"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginEnd="8dp" />
+        android:layout_marginEnd="4dp" />
+
+    <!-- Ô tìm kiếm — ẩn mặc định, trượt xuống khi bấm 🔍 -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/searchLayout"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="0dp"
+        android:visibility="gone"
+        android:alpha="0"
+        app:boxStrokeColor="#00E5FF"
+        app:boxStrokeWidth="1.5dp"
+        app:boxBackgroundColor="#14FFFFFF"
+        app:hintTextColor="#8800E5FF"
+        app:endIconMode="clear_text"
+        app:endIconTint="#5500E5FF"
+        app:layout_constraintTop_toBottomOf="@id/toolbar"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/etSearch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Tìm số điện thoại…"
+            android:textColor="#FFFFFFFF"
+            android:textSize="15sp"
+            android:inputType="phone"
+            android:imeOptions="actionSearch"
+            android:maxLines="1"
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp" />
+    </com.google.android.material.textfield.TextInputLayout>
 
     <View
         android:id="@+id/divider"
         android:layout_width="0dp"
         android:layout_height="1dp"
         android:background="#14FFFFFF"
-        app:layout_constraintTop_toBottomOf="@id/toolbar"
+        app:layout_constraintTop_toBottomOf="@id/searchLayout"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Empty state -->
+    <!-- Empty state (không có lịch sử hoặc không tìm thấy) -->
     <LinearLayout
         android:id="@+id/layoutEmpty"
         android:layout_width="wrap_content"
@@ -56,12 +104,14 @@
         app:layout_constraintEnd_toEndOf="parent">
 
         <TextView
+            android:id="@+id/tvEmptyIcon"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="📋"
             android:textSize="48sp" />
 
         <TextView
+            android:id="@+id/tvEmptyText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
