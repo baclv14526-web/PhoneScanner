@@ -36,11 +36,9 @@ class SwipeToDeleteCallback(
     private val bgRect = RectF()
     private val cornerRadius = 16 * dp
 
-    // Chỉ kích hoạt swipe khi item là Record chưa ghim
-    // (item đã ghim phải bỏ ghim trước mới xóa được — tránh xóa nhầm số quan trọng)
     override fun getSwipeDirs(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder): Int {
-        val pos = viewHolder.bindingAdapterPosition
-        if (pos == RecyclerView.NO_ID) return 0
+        val pos = viewHolder.absoluteAdapterPosition
+        if (pos == RecyclerView.NO_ID.toInt()) return 0
         val item = adapter.getItem(pos)
         return if (item is HistoryItem.Record && !item.record.isPinned &&
                    adapter.getItemViewType(pos) == HistoryAdapter.TYPE_RECORD)
@@ -48,11 +46,11 @@ class SwipeToDeleteCallback(
     }
 
     override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder,
-                        target: RecyclerView.ViewHolder) = false   // không dùng drag
+                        target: RecyclerView.ViewHolder) = false
 
     override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-        val pos = viewHolder.bindingAdapterPosition
-        if (pos == RecyclerView.NO_ID) return
+        val pos = viewHolder.absoluteAdapterPosition
+        if (pos == RecyclerView.NO_ID.toInt()) return
         val item = adapter.getItem(pos)
         if (item is HistoryItem.Record) {
             onDelete(item.record.id)
