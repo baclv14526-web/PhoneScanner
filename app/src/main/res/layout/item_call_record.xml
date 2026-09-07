@@ -19,6 +19,19 @@
         android:paddingTop="14dp"
         android:paddingBottom="14dp">
 
+        <!-- Icon ghim — chỉ hiện khi isPinned = true -->
+        <TextView
+            android:id="@+id/tvPinIcon"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:gravity="center"
+            android:text="📌"
+            android:textSize="10sp"
+            android:visibility="gone"
+            app:layout_constraintTop_toTopOf="@id/tvIcon"
+            app:layout_constraintEnd_toEndOf="@id/tvIcon"
+            app:layout_constraintStart_toStartOf="@id/tvIcon" />
+
         <!-- Icon điện thoại -->
         <TextView
             android:id="@+id/tvIcon"

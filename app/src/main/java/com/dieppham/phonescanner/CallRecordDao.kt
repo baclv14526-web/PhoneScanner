@@ -11,16 +11,10 @@ interface CallRecordDao {
     @Insert
     suspend fun insert(record: CallRecord)
 
-    /**
-     * Trả về toàn bộ lịch sử, mới nhất trước.
-     * Flow tự động emit lại mỗi khi DB thay đổi — không cần manual refresh.
-     */
-    @Query("SELECT * FROM call_records ORDER BY timestamp DESC")
+    // Sắp xếp: ghim trước (pinnedAt DESC trong nhóm ghim), sau đó theo timestamp DESC
+    @Query("SELECT * FROM call_records ORDER BY isPinned DESC, pinnedAt DESC, timestamp DESC")
     fun getAllRecords(): Flow<List<CallRecord>>
 
-    /**
-     * Đếm số lần gọi cho mỗi số điện thoại (dùng cho badge "x lần").
-     */
     @Query("""
         SELECT phoneNumber, COUNT(*) as callCount, MAX(timestamp) as lastCall
         FROM call_records
@@ -28,6 +22,15 @@ interface CallRecordDao {
         ORDER BY lastCall DESC
     """)
     fun getCallStats(): Flow<List<CallStats>>
+
+    @Query("UPDATE call_records SET isPinned = 1, pinnedAt = :pinnedAt WHERE id = :id")
+    suspend fun pinRecord(id: Long, pinnedAt: Long)
+
+    @Query("UPDATE call_records SET isPinned = 0, pinnedAt = 0 WHERE id = :id")
+    suspend fun unpinRecord(id: Long)
+
+    @Query("DELETE FROM call_records WHERE id = :id")
+    suspend fun deleteById(id: Long)
 
     @Query("DELETE FROM call_records")
     suspend fun deleteAll()

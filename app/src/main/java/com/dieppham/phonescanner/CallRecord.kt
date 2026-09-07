@@ -10,7 +10,9 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "call_records")
 data class CallRecord(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val phoneNumber: String,          // dạng chuẩn "0912345678"
-    val displayNumber: String,        // dạng hiển thị "0912 345 678"
-    val timestamp: Long               // epoch ms
+    val phoneNumber: String,
+    val displayNumber: String,
+    val timestamp: Long,
+    val isPinned: Boolean = false,
+    val pinnedAt: Long = 0L      // epoch ms lúc ghim, dùng để sort trong section ghim
 )
