@@ -1,6 +1,10 @@
 package com.dieppham.phonescanner
 
-import android.Manifest
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.Sensor
@@ -149,6 +153,28 @@ class MainActivity : AppCompatActivity() {
             .start()
     }
 
+    /**
+     * Rung 2 nhịp ngắn kiểu "double tap" — dễ nhận biết hơn 1 nhịp đơn,
+     * không gây khó chịu như rung dài.
+     * Pattern: [delay, rung, nghỉ, rung] tính bằng ms
+     */
+    private fun vibrateDetected() {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager)
+                .defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+
+        val effect = VibrationEffect.createWaveform(
+            longArrayOf(0, 60, 80, 60),   // delay, rung, nghỉ, rung (ms)
+            intArrayOf(0, 180, 0, 255),   // amplitude: 0=tắt, 255=mạnh nhất
+            -1                             // -1 = không lặp
+        )
+        vibrator.vibrate(effect)
+    }
+
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
@@ -172,6 +198,7 @@ class MainActivity : AppCompatActivity() {
                 requiredStableFrames = 2,
                 onStableNumberDetected = { number ->
                     runOnUiThread {
+                        vibrateDetected()
                         binding.scanOverlay.flashSuccess()
                         showConfirmationCard(number)
                     }

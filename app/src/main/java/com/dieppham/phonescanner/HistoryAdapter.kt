@@ -53,9 +53,16 @@ class HistoryAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val item = getItem(position)) {
-            is HistoryItem.PinnedHeader -> { /* static, không cần bind */ }
+            is HistoryItem.PinnedHeader -> { /* static */ }
             is HistoryItem.Header       -> (holder as HeaderVH).bind(item.label)
-            is HistoryItem.Record       -> (holder as RecordVH).bind(item.record, item.callCount, onCallClick, onPinToggle)
+            is HistoryItem.Record       -> (holder as RecordVH).bind(
+                record         = item.record,
+                totalCallCount = item.totalCallCount,
+                dailyCount     = item.dailyCount,
+                lastCallTime   = item.lastCallTime,
+                onCallClick    = onCallClick,
+                onPinToggle    = onPinToggle
+            )
         }
     }
 
@@ -68,31 +75,42 @@ class HistoryAdapter(
     }
 
     class RecordVH(view: View) : RecyclerView.ViewHolder(view) {
-        private val tvNumber    = view.findViewById<TextView>(R.id.tvNumber)
-        private val tvTime      = view.findViewById<TextView>(R.id.tvTime)
-        private val tvCallCount = view.findViewById<TextView>(R.id.tvCallCount)
-        private val tvPinIcon   = view.findViewById<TextView>(R.id.tvPinIcon)
+        private val tvNumber     = view.findViewById<TextView>(R.id.tvNumber)
+        private val tvTime       = view.findViewById<TextView>(R.id.tvTime)
+        private val tvCallCount  = view.findViewById<TextView>(R.id.tvCallCount)
+        private val tvPinIcon    = view.findViewById<TextView>(R.id.tvPinIcon)
 
         fun bind(
             record: CallRecord,
-            callCount: Int,
+            totalCallCount: Int,
+            dailyCount: Int,
+            lastCallTime: Long,
             onCallClick: (String) -> Unit,
             onPinToggle: (CallRecord) -> Unit
         ) {
-            tvNumber.text    = record.displayNumber
-            tvTime.text      = timeFmt.format(Date(record.timestamp))
-            tvCallCount.text = if (callCount > 1) "${callCount} lần" else "1 lần"
-
-            // Icon ghim — hiện/ẩn tùy trạng thái
+            tvNumber.text = record.displayNumber
             tvPinIcon.visibility = if (record.isPinned) View.VISIBLE else View.GONE
 
-            itemView.setOnClickListener { onCallClick(record.phoneNumber) }
-
-            // Bấm giữ → ghim / bỏ ghim
-            itemView.setOnLongClickListener {
-                onPinToggle(record)
-                true
+            if (record.isPinned) {
+                // Section ghim: hiện giờ gọi gần nhất + tổng lần gọi
+                tvTime.text      = timeFmt.format(Date(record.timestamp))
+                tvCallCount.text = if (totalCallCount > 1) "$totalCallCount lần" else "1 lần"
+            } else {
+                // Section lịch sử theo ngày: hiện giờ gọi cuối trong ngày + số lần trong ngày
+                tvTime.text      = timeFmt.format(Date(lastCallTime))
+                tvCallCount.text = if (dailyCount > 1) "$dailyCount lần hôm nay"
+                                   else timeFmt.format(Date(lastCallTime))
+                // Nếu gọi nhiều lần trong ngày thì hiện "x lần", nếu 1 lần thì hiện giờ
+                // (badge "1 lần" không có nhiều ý nghĩa bằng giờ gọi)
+                tvCallCount.text = when {
+                    dailyCount > 1 -> "$dailyCount lần"
+                    else           -> ""
+                }
+                tvCallCount.visibility = if (dailyCount > 1) View.VISIBLE else View.GONE
             }
+
+            itemView.setOnClickListener { onCallClick(record.phoneNumber) }
+            itemView.setOnLongClickListener { onPinToggle(record); true }
         }
     }
 }
@@ -100,5 +118,10 @@ class HistoryAdapter(
 sealed class HistoryItem {
     object PinnedHeader : HistoryItem()
     data class Header(val label: String) : HistoryItem()
-    data class Record(val record: CallRecord, val callCount: Int) : HistoryItem()
+    data class Record(
+        val record: CallRecord,
+        val totalCallCount: Int,    // tổng từ trước đến nay (dùng cho badge section ghim)
+        val dailyCount: Int,        // số lần gọi trong ngày này (dùng cho badge lịch sử)
+        val lastCallTime: Long      // timestamp lần gọi cuối cùng trong nhóm ngày này
+    ) : HistoryItem()
 }

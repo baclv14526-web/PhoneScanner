@@ -20,9 +20,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
-import java.util.Locale
-
-class HistoryActivity : AppCompatActivity() {
+import java.util.Locale : AppCompatActivity() {
 
     private lateinit var binding: ActivityHistoryBinding
     private lateinit var adapter: HistoryAdapter
@@ -68,9 +66,15 @@ class HistoryActivity : AppCompatActivity() {
         setupSearch()
 
         lifecycleScope.launch {
-            combine(dao.getAllRecords(), dao.getCallStats()) { records, stats ->
-                val countMap = stats.associate { it.phoneNumber to it.callCount }
-                buildHistoryItems(records, countMap)
+            combine(
+                dao.getAllRecords(),
+                dao.getCallStats(),
+                dao.getDailyStats()
+            ) { records, totalStats, dailyStats ->
+                val totalMap = totalStats.associate { it.phoneNumber to it.callCount }
+                // Map: "phoneNumber|dayKey" -> DailyCallStats
+                val dailyMap = dailyStats.associate { "${it.phoneNumber}|${it.dayKey}" to it }
+                buildHistoryItems(records, totalMap, dailyMap)
             }.collect { items ->
                 allItems = items
                 applyFilter()
@@ -115,42 +119,66 @@ class HistoryActivity : AppCompatActivity() {
     // Build items: section "ĐÃ GHIM" trên cùng, sau đó lịch sử theo ngày
     // -------------------------------------------------------------------------
 
+    private val dayKeyFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
     private fun buildHistoryItems(
         records: List<CallRecord>,
-        countMap: Map<String, Int>
+        totalMap: Map<String, Int>,
+        dailyMap: Map<String, DailyCallStats>
     ): List<HistoryItem> {
         val result = mutableListOf<HistoryItem>()
 
         val pinned   = records.filter { it.isPinned }
         val unpinned = records.filter { !it.isPinned }
 
-        // --- Section ghim ---
+        // --- Section ghim: mỗi số 1 dòng, hiện tổng lần gọi ---
         if (pinned.isNotEmpty()) {
             result += HistoryItem.PinnedHeader
-            pinned.forEach { record ->
-                result += HistoryItem.Record(record, countMap[record.phoneNumber] ?: 1)
+            // Dedup: chỉ lấy bản ghi mới nhất của mỗi số trong danh sách ghim
+            pinned.distinctBy { it.phoneNumber }.forEach { record ->
+                result += HistoryItem.Record(
+                    record         = record,
+                    totalCallCount = totalMap[record.phoneNumber] ?: 1,
+                    dailyCount     = 1,
+                    lastCallTime   = record.timestamp
+                )
             }
         }
 
-        // --- Section lịch sử theo ngày ---
+        // --- Section lịch sử: gom theo ngày, mỗi số chỉ 1 dòng/ngày ---
         val todayKey     = todayFmt.format(Date())
         val yesterdayKey = todayFmt.format(
             Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }.time
         )
         var lastDayKey = ""
 
+        // Chỉ lấy 1 bản ghi đại diện mỗi cặp (phoneNumber, ngày)
+        // → dùng distinctBy trên cặp key, giữ bản ghi có timestamp lớn nhất (đã sort DESC)
+        val seen = mutableSetOf<String>()
         unpinned.forEach { record ->
-            val dayKey = todayFmt.format(Date(record.timestamp))
-            if (dayKey != lastDayKey) {
-                val label = when (dayKey) {
+            val dk = dayKeyFmt.format(Date(record.timestamp))
+            val key = "${record.phoneNumber}|$dk"
+            if (seen.contains(key)) return@forEach
+            seen += key
+
+            val displayDayKey = todayFmt.format(Date(record.timestamp))
+            if (displayDayKey != lastDayKey) {
+                val label = when (displayDayKey) {
                     todayKey     -> "HÔM NAY"
                     yesterdayKey -> "HÔM QUA"
                     else         -> dayFmt.format(Date(record.timestamp)).uppercase()
                 }
                 result += HistoryItem.Header(label)
-                lastDayKey = dayKey
+                lastDayKey = displayDayKey
             }
-            result += HistoryItem.Record(record, countMap[record.phoneNumber] ?: 1)
+
+            val daily = dailyMap[key]
+            result += HistoryItem.Record(
+                record         = record,
+                totalCallCount = totalMap[record.phoneNumber] ?: 1,
+                dailyCount     = daily?.callCount ?: 1,
+                lastCallTime   = daily?.lastCall ?: record.timestamp
+            )
         }
 
         return result

@@ -11,10 +11,10 @@ interface CallRecordDao {
     @Insert
     suspend fun insert(record: CallRecord)
 
-    // Sắp xếp: ghim trước (pinnedAt DESC trong nhóm ghim), sau đó theo timestamp DESC
     @Query("SELECT * FROM call_records ORDER BY isPinned DESC, pinnedAt DESC, timestamp DESC")
     fun getAllRecords(): Flow<List<CallRecord>>
 
+    // Tổng số lần gọi mỗi số (dùng cho badge section ghim + tooltip)
     @Query("""
         SELECT phoneNumber, COUNT(*) as callCount, MAX(timestamp) as lastCall
         FROM call_records
@@ -22,6 +22,18 @@ interface CallRecordDao {
         ORDER BY lastCall DESC
     """)
     fun getCallStats(): Flow<List<CallStats>>
+
+    // Số lần gọi mỗi số trong từng ngày — dùng để gom dòng trong lịch sử
+    // strftime('%Y-%m-%d', timestamp/1000, 'unixepoch') → cắt về ngày UTC
+    @Query("""
+        SELECT phoneNumber, COUNT(*) as callCount, MAX(timestamp) as lastCall,
+               strftime('%Y-%m-%d', timestamp/1000, 'unixepoch') as dayKey
+        FROM call_records
+        WHERE isPinned = 0
+        GROUP BY phoneNumber, dayKey
+        ORDER BY lastCall DESC
+    """)
+    fun getDailyStats(): Flow<List<DailyCallStats>>
 
     @Query("UPDATE call_records SET isPinned = 1, pinnedAt = :pinnedAt WHERE id = :id")
     suspend fun pinRecord(id: Long, pinnedAt: Long)
@@ -36,9 +48,16 @@ interface CallRecordDao {
     suspend fun deleteAll()
 }
 
-/** Kết quả tổng hợp — không phải Entity, chỉ dùng để đọc */
 data class CallStats(
     val phoneNumber: String,
     val callCount: Int,
     val lastCall: Long
+)
+
+/** Số lần gọi mỗi số trong từng ngày cụ thể */
+data class DailyCallStats(
+    val phoneNumber: String,
+    val callCount: Int,
+    val lastCall: Long,
+    val dayKey: String      // format "yyyy-MM-dd"
 )
