@@ -1,5 +1,6 @@
 package com.dieppham.phonescanner
 
+import android.Manifest
 import android.content.Context
 import android.os.Build
 import android.os.VibrationEffect
