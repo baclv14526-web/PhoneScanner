@@ -68,17 +68,18 @@ class HistoryActivity : AppCompatActivity() {
         setupSearch()
 
         lifecycleScope.launch {
+            // Dùng combine lồng nhau thay vì combine 3 Flow cùng lúc
+            // để tránh lỗi overload resolution trên một số version coroutines
             combine(
                 dao.getAllRecords(),
-                dao.getCallStats(),
-                dao.getDailyStats()
-            ) { records, totalStats, dailyStats ->
-                val totalMap = totalStats.associate { it.phoneNumber to it.callCount }
-                // Map: "phoneNumber|dayKey" -> DailyCallStats
+                dao.getCallStats()
+            ) { records, totalStats ->
+                records to totalStats.associate { it.phoneNumber to it.callCount }
+            }.collect { (records, totalMap) ->
+                // Lấy dailyStats riêng — dùng dao trực tiếp (suspend, trong coroutine)
+                val dailyStats = dao.getDailyStatsList()
                 val dailyMap = dailyStats.associate { "${it.phoneNumber}|${it.dayKey}" to it }
-                buildHistoryItems(records, totalMap, dailyMap)
-            }.collect { items ->
-                allItems = items
+                allItems = buildHistoryItems(records, totalMap, dailyMap)
                 applyFilter()
             }
         }

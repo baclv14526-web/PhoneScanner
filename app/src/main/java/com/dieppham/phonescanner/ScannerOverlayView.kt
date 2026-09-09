@@ -16,35 +16,29 @@ import android.view.animation.DecelerateInterpolator
 import android.view.animation.LinearInterpolator
 import androidx.core.animation.doOnRepeat
 
-/**
- * Custom view vẽ toàn bộ overlay lên camera preview:
- *  - Nền tối mờ xung quanh (vignette), vùng khung quét trong suốt
- *  - Khung bo tròn với 4 góc nhấn mạnh kiểu máy quét chuyên nghiệp
- *  - Đường quét (scan line) chạy lên xuống liên tục
- *  - Flash xanh khi phát hiện số thành công
- */
 class ScannerOverlayView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyle: Int = 0
 ) : View(context, attrs, defStyle) {
 
-    // --- Màu sắc ---
-    private val COLOR_FRAME   = Color.parseColor("#00E5FF")   // cyan sáng
+    private val COLOR_FRAME   = Color.parseColor("#00E5FF")
     private val COLOR_CORNER  = Color.parseColor("#00E5FF")
-    private val COLOR_SUCCESS = Color.parseColor("#69F0AE")   // xanh lá flash
-    private val COLOR_OVERLAY = Color.parseColor("#99000000") // nền tối mờ
+    private val COLOR_SUCCESS = Color.parseColor("#69F0AE")
+    private val COLOR_OVERLAY = Color.parseColor("#99000000")
 
-    // --- Kích thước tính theo dp ---
     private val dp = context.resources.displayMetrics.density
-    private val frameMarginH = 28 * dp
-    private val frameHeight  = 100 * dp
-    private val cornerLen    = 28 * dp
-    private val cornerStroke = 4 * dp
-    private val frameRadius  = 18 * dp
-    private val scanLineH    = 2.5f * dp
 
-    // --- Paint objects ---
+    // Khung rộng hơn: margin 16dp (thay vì 28dp), cao 130dp (thay vì 100dp)
+    // Đặt ở 0.42f thay vì 0.38f — trên A23 5G (20:9) camera preview bắt đầu
+    // thấp hơn do status bar + title bar, nên cần dịch xuống
+    private val frameMarginH  = 16 * dp
+    private val frameHeight   = 130 * dp
+    private val cornerLen     = 32 * dp
+    private val cornerStroke  = 4.5f * dp
+    private val frameRadius   = 16 * dp
+    private val scanLineH     = 2.5f * dp
+
     private val overlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_OVER)
     }
@@ -70,24 +64,22 @@ class ScannerOverlayView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
 
-    // --- State ---
-    val frameRect = RectF()   // expose ra ngoài để MainActivity tính focus point
+    val frameRect = RectF()
     private var scanLineY = 0f
     private var flashAlpha = 0
     private var isSuccess = false
-
-    // --- Animators ---
     private var scanAnimator: ValueAnimator? = null
     private var flashAnimator: ValueAnimator? = null
 
     init {
-        // Hardware layer: cho phép CLEAR xfermode hoạt động đúng
         setLayerType(LAYER_TYPE_HARDWARE, null)
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        val top = h * 0.38f
+        // 0.42f: dịch xuống so với 0.38f cũ để căn đúng giữa vùng camera
+        // trên màn hình tỉ lệ 20:9 của Samsung A23 5G
+        val top = h * 0.42f
         frameRect.set(frameMarginH, top, w - frameMarginH, top + frameHeight)
         startScanAnimation()
     }
@@ -97,30 +89,22 @@ class ScannerOverlayView @JvmOverloads constructor(
         val w = width.toFloat()
         val h = height.toFloat()
 
-        // 1. Phủ nền tối toàn màn hình
         overlayPaint.color = COLOR_OVERLAY
         canvas.drawRect(0f, 0f, w, h, overlayPaint)
 
-        // 2. Khoét lỗ trong suốt đúng vùng khung quét
         canvas.drawRoundRect(frameRect, frameRadius, frameRadius, clearPaint)
 
-        // 3. Flash xanh khi nhận diện thành công
         if (flashAlpha > 0) {
             flashPaint.color = COLOR_SUCCESS
             flashPaint.alpha = flashAlpha
             canvas.drawRoundRect(frameRect, frameRadius, frameRadius, flashPaint)
         }
 
-        // 4. Đường viền mỏng bao quanh khung
         canvas.drawRoundRect(frameRect, frameRadius, frameRadius, framePaint)
 
-        // 5. 4 góc nhấn mạnh (kiểu máy quét QR chuyên nghiệp)
-        val c = cornerPaint.color
         cornerPaint.color = if (isSuccess) COLOR_SUCCESS else COLOR_CORNER
         drawCorners(canvas)
-        cornerPaint.color = c
 
-        // 6. Đường quét chạy nội bộ khung (chỉ hiện khi chưa nhận được số)
         if (!isSuccess && frameRect.height() > 0) {
             val lineGradient = LinearGradient(
                 frameRect.left, scanLineY,
@@ -130,33 +114,31 @@ class ScannerOverlayView @JvmOverloads constructor(
                 Shader.TileMode.CLAMP
             )
             scanLinePaint.shader = lineGradient
-            canvas.drawRect(frameRect.left, scanLineY, frameRect.right, scanLineY + scanLineH, scanLinePaint)
+            canvas.drawRect(
+                frameRect.left, scanLineY,
+                frameRect.right, scanLineY + scanLineH,
+                scanLinePaint
+            )
         }
     }
 
     private fun drawCorners(canvas: Canvas) {
-        val l = frameRect.left
-        val t = frameRect.top
-        val r = frameRect.right
-        val b = frameRect.bottom
+        val l  = frameRect.left
+        val t  = frameRect.top
+        val r  = frameRect.right
+        val b  = frameRect.bottom
         val cl = cornerLen
-        val cr = frameRadius * 0.6f   // offset vào trong một chút cho căn chỉnh góc bo
+        val cr = frameRadius * 0.6f
 
-        // Trên-trái
         canvas.drawLine(l + cr, t, l + cr + cl, t, cornerPaint)
         canvas.drawLine(l, t + cr, l, t + cr + cl, cornerPaint)
-        // Trên-phải
         canvas.drawLine(r - cr - cl, t, r - cr, t, cornerPaint)
         canvas.drawLine(r, t + cr, r, t + cr + cl, cornerPaint)
-        // Dưới-trái
         canvas.drawLine(l + cr, b, l + cr + cl, b, cornerPaint)
         canvas.drawLine(l, b - cr - cl, l, b - cr, cornerPaint)
-        // Dưới-phải
         canvas.drawLine(r - cr - cl, b, r - cr, b, cornerPaint)
         canvas.drawLine(r, b - cr - cl, r, b - cr, cornerPaint)
     }
-
-    // --- Animations ---
 
     private fun startScanAnimation() {
         scanAnimator?.cancel()
@@ -174,7 +156,6 @@ class ScannerOverlayView @JvmOverloads constructor(
         }
     }
 
-    /** Gọi khi phát hiện số thành công — flash xanh rồi tắt */
     fun flashSuccess() {
         isSuccess = true
         scanAnimator?.pause()
@@ -188,11 +169,9 @@ class ScannerOverlayView @JvmOverloads constructor(
             }
             start()
         }
-        cornerPaint.color = COLOR_SUCCESS
         invalidate()
     }
 
-    /** Gọi khi người dùng bấm Quét lại */
     fun resetToScanning() {
         isSuccess = false
         flashAlpha = 0

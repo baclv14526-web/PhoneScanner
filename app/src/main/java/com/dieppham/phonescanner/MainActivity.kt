@@ -160,20 +160,23 @@ class MainActivity : AppCompatActivity() {
      * Pattern: [delay, rung, nghỉ, rung] tính bằng ms
      */
     private fun vibrateDetected() {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager)
-                .defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        try {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager)
+                    .defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+            val effect = VibrationEffect.createWaveform(
+                longArrayOf(0, 60, 80, 60),
+                intArrayOf(0, 180, 0, 255),
+                -1
+            )
+            vibrator.vibrate(effect)
+        } catch (_: Exception) {
+            // Bỏ qua nếu thiết bị không hỗ trợ vibrator hoặc không có quyền
         }
-
-        val effect = VibrationEffect.createWaveform(
-            longArrayOf(0, 60, 80, 60),   // delay, rung, nghỉ, rung (ms)
-            intArrayOf(0, 180, 0, 255),   // amplitude: 0=tắt, 255=mạnh nhất
-            -1                             // -1 = không lặp
-        )
-        vibrator.vibrate(effect)
     }
 
     private fun startCamera() {

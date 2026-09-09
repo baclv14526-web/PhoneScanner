@@ -21,11 +21,10 @@ class PhoneNumberAnalyzer(
     private var stableCount: Int = 0
     private var paused = false
 
-    // Tỉ lệ vùng khung quét so với chiều cao ảnh (khớp với ScannerOverlayView)
-    // ScannerOverlayView đặt top = height * 0.38, frameHeight = 100dp / screenHeight
-    // Ta crop rộng hơn một chút (±10%) để không bị cắt sát quá khi cầm hơi nghiêng
-    private val CROP_TOP_RATIO    = 0.28f
-    private val CROP_BOTTOM_RATIO = 0.62f
+    // Khớp với ScannerOverlayView: top=0.42, frameHeight=130dp trên ~900px chiều cao
+    // Dùng biên ±0.08 để không bị cắt sát khi cầm hơi nghiêng
+    private val CROP_TOP_RATIO    = 0.34f
+    private val CROP_BOTTOM_RATIO = 0.66f
 
     fun pause() { paused = true }
 

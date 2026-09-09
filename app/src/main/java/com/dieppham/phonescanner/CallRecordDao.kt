@@ -23,8 +23,7 @@ interface CallRecordDao {
     """)
     fun getCallStats(): Flow<List<CallStats>>
 
-    // Số lần gọi mỗi số trong từng ngày — dùng để gom dòng trong lịch sử
-    // strftime('%Y-%m-%d', timestamp/1000, 'unixepoch') → cắt về ngày UTC
+    // Flow version — dùng trong combine
     @Query("""
         SELECT phoneNumber, COUNT(*) as callCount, MAX(timestamp) as lastCall,
                strftime('%Y-%m-%d', timestamp/1000, 'unixepoch') as dayKey
@@ -34,6 +33,17 @@ interface CallRecordDao {
         ORDER BY lastCall DESC
     """)
     fun getDailyStats(): Flow<List<DailyCallStats>>
+
+    // Suspend one-shot — dùng trong nested coroutine (không cần Flow)
+    @Query("""
+        SELECT phoneNumber, COUNT(*) as callCount, MAX(timestamp) as lastCall,
+               strftime('%Y-%m-%d', timestamp/1000, 'unixepoch') as dayKey
+        FROM call_records
+        WHERE isPinned = 0
+        GROUP BY phoneNumber, dayKey
+        ORDER BY lastCall DESC
+    """)
+    suspend fun getDailyStatsList(): List<DailyCallStats>
 
     @Query("UPDATE call_records SET isPinned = 1, pinnedAt = :pinnedAt WHERE id = :id")
     suspend fun pinRecord(id: Long, pinnedAt: Long)
