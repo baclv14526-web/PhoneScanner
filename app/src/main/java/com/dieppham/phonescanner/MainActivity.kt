@@ -189,22 +189,23 @@ class MainActivity : AppCompatActivity() {
             val resolutionSelector = ResolutionSelector.Builder()
                 .setResolutionStrategy(
                     ResolutionStrategy(
-                        Size(1280, 720),
+                        Size(1920, 1080),   // tăng lên full HD để OCR rõ hơn trên khung rộng
                         ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
                     )
                 ).build()
             val imageAnalysis = ImageAnalysis.Builder()
                 .setResolutionSelector(resolutionSelector)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .build()
 
             val phoneAnalyzer = PhoneNumberAnalyzer(
-                requiredStableFrames = 2,
-                onStableNumberDetected = { number ->
+                requiredStableFrames = 1,
+                onStableNumberDetected = { numbers ->
                     runOnUiThread {
                         vibrateDetected()
                         binding.scanOverlay.flashSuccess()
-                        showConfirmationCard(number)
+                        showConfirmationCard(numbers)
                     }
                 },
                 onDebugInfo = { rawText, error ->
@@ -257,9 +258,34 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showConfirmationCard(number: String) {
-        confirmedNumber = number
-        binding.tvDetectedNumber.text = PhoneNumberExtractor.formatForDisplay(number)
+    private fun showConfirmationCard(numbers: List<String>) {
+        if (numbers.isEmpty()) return
+        // Hiện số đầu tiên (gần tâm khung nhất)
+        confirmedNumber = numbers[0]
+        binding.tvDetectedNumber.text = PhoneNumberExtractor.formatForDisplay(numbers[0])
+
+        // Nếu có nhiều số trong khung: hiện nút chọn số khác
+        if (numbers.size > 1) {
+            binding.tvDetectedNumber.setOnClickListener {
+                // Bấm vào số → hiện dialog chọn số khác trong khung
+                val displayList = numbers.map { PhoneNumberExtractor.formatForDisplay(it) }
+                    .toTypedArray()
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Chọn số điện thoại")
+                    .setItems(displayList) { _, idx ->
+                        confirmedNumber = numbers[idx]
+                        binding.tvDetectedNumber.text = displayList[idx]
+                    }
+                    .show()
+            }
+            binding.tvDetectedNumber.paintFlags =
+                binding.tvDetectedNumber.paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
+        } else {
+            binding.tvDetectedNumber.setOnClickListener(null)
+            binding.tvDetectedNumber.paintFlags =
+                binding.tvDetectedNumber.paintFlags and android.graphics.Paint.UNDERLINE_TEXT_FLAG.inv()
+        }
+
         binding.tvHint.visibility = View.GONE
         binding.cardConfirm.visibility = View.VISIBLE
         binding.cardConfirm.translationY = 80f * resources.displayMetrics.density
