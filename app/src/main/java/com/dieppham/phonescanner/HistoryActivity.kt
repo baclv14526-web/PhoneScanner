@@ -28,12 +28,25 @@ class HistoryActivity : AppCompatActivity() {
     private lateinit var adapter: HistoryAdapter
     private lateinit var dao: CallRecordDao
 
-    private val dayFmt   = SimpleDateFormat("EEEE, dd/MM/yyyy", Locale("vi"))
-    private val todayFmt = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+    private val dayLabelFmt = SimpleDateFormat("EEEE, dd/MM/yyyy", Locale("vi"))
+    private val displayDayFmt = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+    private val dbDayFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 
-    private var allItems: List<HistoryItem> = emptyList()
-    private var searchQuery: String = ""
+    // Nguồn dữ liệu gốc — records gom nhóm theo ngày
+    private var allGroups: List<DayGroup> = emptyList()
+
+    // Trạng thái expand/collapse: dayKey -> expanded (mặc định hôm nay = true)
+    private val expandedState = mutableMapOf<String, Boolean>()
+
+    private var searchQuery = ""
     private var searchVisible = false
+
+    // Dữ liệu gom nhóm nội bộ
+    data class DayGroup(
+        val dayKey: String,
+        val label: String,
+        val records: List<HistoryItem.Record>
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,40 +60,47 @@ class HistoryActivity : AppCompatActivity() {
         dao = AppDatabase.get(this).callRecordDao()
 
         adapter = HistoryAdapter(
-            onCallClick = { phoneNumber ->
-                try { startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:$phoneNumber"))) }
+            onCallClick = { number ->
+                try { startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:$number"))) }
                 catch (_: SecurityException) {}
             },
-            onPinToggle = { record ->
-                // Long-press → hiện dialog xác nhận ghim/bỏ ghim
-                showPinDialog(record)
+            onPinToggle = { record -> showPinDialog(record) },
+            onDayHeaderClick = { dayKey ->
+                // Toggle trạng thái expand/collapse của ngày đó
+                expandedState[dayKey] = !(expandedState[dayKey] ?: true)
+                rebuildAndSubmit()
             }
         )
 
         binding.recyclerHistory.layoutManager = LinearLayoutManager(this)
         binding.recyclerHistory.adapter = adapter
 
-        val swipeCallback = SwipeToDeleteCallback(this, adapter) { recordId ->
-            lifecycleScope.launch { dao.deleteById(recordId) }
-        }
-        ItemTouchHelper(swipeCallback).attachToRecyclerView(binding.recyclerHistory)
+        ItemTouchHelper(
+            SwipeToDeleteCallback(this, adapter) { recordId ->
+                lifecycleScope.launch { dao.deleteById(recordId) }
+            }
+        ).attachToRecyclerView(binding.recyclerHistory)
 
         setupSearch()
 
         lifecycleScope.launch {
-            // Dùng combine lồng nhau thay vì combine 3 Flow cùng lúc
-            // để tránh lỗi overload resolution trên một số version coroutines
             combine(
                 dao.getAllRecords(),
                 dao.getCallStats()
             ) { records, totalStats ->
                 records to totalStats.associate { it.phoneNumber to it.callCount }
             }.collect { (records, totalMap) ->
-                // Lấy dailyStats riêng — dùng dao trực tiếp (suspend, trong coroutine)
                 val dailyStats = dao.getDailyStatsList()
                 val dailyMap = dailyStats.associate { "${it.phoneNumber}|${it.dayKey}" to it }
-                allItems = buildHistoryItems(records, totalMap, dailyMap)
-                applyFilter()
+                allGroups = buildGroups(records, totalMap, dailyMap)
+                // Hôm nay mặc định mở, các ngày cũ mặc định đóng
+                val todayKey = dbDayFmt.format(Date())
+                allGroups.forEach { g ->
+                    if (!expandedState.containsKey(g.dayKey)) {
+                        expandedState[g.dayKey] = (g.dayKey == todayKey)
+                    }
+                }
+                rebuildAndSubmit()
             }
         }
 
@@ -90,6 +110,7 @@ class HistoryActivity : AppCompatActivity() {
                 .setMessage("Các số đã ghim cũng sẽ bị xóa. Không thể hoàn tác.")
                 .setPositiveButton("Xóa") { _, _ ->
                     lifecycleScope.launch { dao.deleteAll() }
+                    expandedState.clear()
                 }
                 .setNegativeButton("Hủy", null)
                 .show()
@@ -97,16 +118,135 @@ class HistoryActivity : AppCompatActivity() {
     }
 
     // -------------------------------------------------------------------------
-    // Pin / Unpin
+    // Xây dựng danh sách flat từ groups + trạng thái expand
+    // -------------------------------------------------------------------------
+
+    private fun rebuildAndSubmit() {
+        val flat = buildFlatList(
+            if (searchQuery.isBlank()) allGroups else filterGroups(allGroups, searchQuery)
+        )
+        adapter.submitList(flat)
+
+        val isEmpty = flat.none { it is HistoryItem.Record || it is HistoryItem.PinnedHeader }
+        binding.layoutEmpty.visibility = if (isEmpty) View.VISIBLE else View.GONE
+        if (isEmpty) {
+            if (allGroups.isEmpty()) {
+                binding.tvEmptyIcon.text = "📋"
+                binding.tvEmptyText.text = "Chưa có lịch sử gọi"
+            } else {
+                binding.tvEmptyIcon.text = "🔍"
+                binding.tvEmptyText.text = "Không tìm thấy số \"$searchQuery\""
+            }
+        }
+    }
+
+    /**
+     * Flat list = section ghim (nếu có) + các DayHeader + Records (nếu expanded)
+     * Sắp xếp theo thời gian mới nhất lên đầu (đã được đảm bảo bởi allGroups)
+     */
+    private fun buildFlatList(groups: List<DayGroup>): List<HistoryItem> {
+        val result = mutableListOf<HistoryItem>()
+
+        // Section ghim — luôn mở, không có header toggle
+        val pinned = allGroups.flatMap { g -> g.records.filter { it.record.isPinned } }
+            .distinctBy { it.record.phoneNumber }
+        if (pinned.isNotEmpty() && searchQuery.isBlank()) {
+            result += HistoryItem.PinnedHeader
+            result += pinned
+        }
+
+        // Lịch sử theo ngày
+        groups.forEach { group ->
+            val expanded = expandedState[group.dayKey] ?: true
+            result += HistoryItem.DayHeader(
+                dayKey    = group.dayKey,
+                label     = group.label,
+                expanded  = expanded,
+                itemCount = group.records.size
+            )
+            if (expanded) result += group.records
+        }
+
+        return result
+    }
+
+    // -------------------------------------------------------------------------
+    // Xây dựng DayGroup từ records DB
+    // -------------------------------------------------------------------------
+
+    private fun buildGroups(
+        records: List<CallRecord>,
+        totalMap: Map<String, Int>,
+        dailyMap: Map<String, DailyCallStats>
+    ): List<DayGroup> {
+        val todayDisplay     = displayDayFmt.format(Date())
+        val yesterdayDisplay = displayDayFmt.format(
+            Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }.time
+        )
+
+        val unpinned = records.filter { !it.isPinned }
+
+        // Gom nhóm theo ngày, giữ thứ tự mới nhất trước (records đã sort DESC từ DB)
+        val groupMap = linkedMapOf<String, MutableList<CallRecord>>()
+        unpinned.forEach { record ->
+            val dk = dbDayFmt.format(Date(record.timestamp))
+            groupMap.getOrPut(dk) { mutableListOf() }.add(record)
+        }
+
+        return groupMap.map { (dayKey, recs) ->
+            val displayKey = displayDayFmt.format(dbDayFmt.parse(dayKey) ?: Date())
+            val label = when (displayKey) {
+                todayDisplay     -> "HÔM NAY"
+                yesterdayDisplay -> "HÔM QUA"
+                else             -> dayLabelFmt.format(dbDayFmt.parse(dayKey) ?: Date()).uppercase()
+            }
+
+            // Dedup: mỗi số chỉ 1 dòng/ngày (giữ timestamp lớn nhất = mới nhất)
+            val seen = mutableSetOf<String>()
+            val dedupRecs = recs.filter { seen.add(it.phoneNumber) }
+
+            val historyRecords = dedupRecs.map { record ->
+                val dk2 = dbDayFmt.format(Date(record.timestamp))
+                val daily = dailyMap["${record.phoneNumber}|$dk2"]
+                HistoryItem.Record(
+                    record         = record,
+                    totalCallCount = totalMap[record.phoneNumber] ?: 1,
+                    dailyCount     = daily?.callCount ?: 1,
+                    lastCallTime   = daily?.lastCall ?: record.timestamp
+                )
+            }
+
+            DayGroup(dayKey = dayKey, label = label, records = historyRecords)
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Search
+    // -------------------------------------------------------------------------
+
+    private fun filterGroups(groups: List<DayGroup>, query: String): List<DayGroup> {
+        val q = query.filter { it.isDigit() }.ifEmpty { query.lowercase() }
+        return groups.mapNotNull { group ->
+            val filtered = group.records.filter { item ->
+                if (q.all { it.isDigit() })
+                    item.record.phoneNumber.filter { it.isDigit() }.contains(q)
+                else
+                    item.record.displayNumber.lowercase().contains(q)
+            }
+            if (filtered.isEmpty()) null
+            else group.copy(records = filtered)
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Pin dialog
     // -------------------------------------------------------------------------
 
     private fun showPinDialog(record: CallRecord) {
-        val title   = record.displayNumber
-        val msg     = if (record.isPinned) "Bỏ ghim số này?" else "Ghim số này lên đầu danh sách?"
+        val msg     = if (record.isPinned) "Bỏ ghim số này?" else "Ghim số này lên đầu?"
         val btnText = if (record.isPinned) "Bỏ ghim" else "📌 Ghim"
-
         AlertDialog.Builder(this)
-            .setTitle(title)
+            .setTitle(record.displayNumber)
             .setMessage(msg)
             .setPositiveButton(btnText) { _, _ ->
                 lifecycleScope.launch {
@@ -119,76 +259,7 @@ class HistoryActivity : AppCompatActivity() {
     }
 
     // -------------------------------------------------------------------------
-    // Build items: section "ĐÃ GHIM" trên cùng, sau đó lịch sử theo ngày
-    // -------------------------------------------------------------------------
-
-    private val dayKeyFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-
-    private fun buildHistoryItems(
-        records: List<CallRecord>,
-        totalMap: Map<String, Int>,
-        dailyMap: Map<String, DailyCallStats>
-    ): List<HistoryItem> {
-        val result = mutableListOf<HistoryItem>()
-
-        val pinned   = records.filter { it.isPinned }
-        val unpinned = records.filter { !it.isPinned }
-
-        // --- Section ghim: mỗi số 1 dòng, hiện tổng lần gọi ---
-        if (pinned.isNotEmpty()) {
-            result += HistoryItem.PinnedHeader
-            // Dedup: chỉ lấy bản ghi mới nhất của mỗi số trong danh sách ghim
-            pinned.distinctBy { it.phoneNumber }.forEach { record ->
-                result += HistoryItem.Record(
-                    record         = record,
-                    totalCallCount = totalMap[record.phoneNumber] ?: 1,
-                    dailyCount     = 1,
-                    lastCallTime   = record.timestamp
-                )
-            }
-        }
-
-        // --- Section lịch sử: gom theo ngày, mỗi số chỉ 1 dòng/ngày ---
-        val todayKey     = todayFmt.format(Date())
-        val yesterdayKey = todayFmt.format(
-            Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }.time
-        )
-        var lastDayKey = ""
-
-        // Chỉ lấy 1 bản ghi đại diện mỗi cặp (phoneNumber, ngày)
-        // → dùng distinctBy trên cặp key, giữ bản ghi có timestamp lớn nhất (đã sort DESC)
-        val seen = mutableSetOf<String>()
-        unpinned.forEach { record ->
-            val dk = dayKeyFmt.format(Date(record.timestamp))
-            val key = "${record.phoneNumber}|$dk"
-            if (seen.contains(key)) return@forEach
-            seen += key
-
-            val displayDayKey = todayFmt.format(Date(record.timestamp))
-            if (displayDayKey != lastDayKey) {
-                val label = when (displayDayKey) {
-                    todayKey     -> "HÔM NAY"
-                    yesterdayKey -> "HÔM QUA"
-                    else         -> dayFmt.format(Date(record.timestamp)).uppercase()
-                }
-                result += HistoryItem.Header(label)
-                lastDayKey = displayDayKey
-            }
-
-            val daily = dailyMap[key]
-            result += HistoryItem.Record(
-                record         = record,
-                totalCallCount = totalMap[record.phoneNumber] ?: 1,
-                dailyCount     = daily?.callCount ?: 1,
-                lastCallTime   = daily?.lastCall ?: record.timestamp
-            )
-        }
-
-        return result
-    }
-
-    // -------------------------------------------------------------------------
-    // Search
+    // Search bar
     // -------------------------------------------------------------------------
 
     private fun setupSearch() {
@@ -199,10 +270,9 @@ class HistoryActivity : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
             override fun afterTextChanged(s: Editable?) {
                 searchQuery = s?.toString()?.trim() ?: ""
-                applyFilter()
+                rebuildAndSubmit()
             }
         })
-
         binding.etSearch.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH) { hideKeyboard(); true } else false
         }
@@ -230,10 +300,8 @@ class HistoryActivity : AppCompatActivity() {
                 binding.searchLayout.layoutParams.height = anim.animatedValue as Int
                 binding.searchLayout.requestLayout()
             }
-            doOnEnd {
-                binding.searchLayout.layoutParams.height =
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-            }
+            doOnEnd { binding.searchLayout.layoutParams.height =
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT }
         }.start()
         binding.etSearch.requestFocus()
         binding.etSearch.postDelayed({
@@ -244,8 +312,7 @@ class HistoryActivity : AppCompatActivity() {
     }
 
     private fun hideSearch() {
-        searchVisible = false
-        searchQuery = ""
+        searchVisible = false; searchQuery = ""
         binding.etSearch.text?.clear()
         hideKeyboard()
         val startH = binding.searchLayout.height
@@ -263,54 +330,12 @@ class HistoryActivity : AppCompatActivity() {
         }.start()
         binding.searchLayout.animate().alpha(0f).setDuration(200).start()
         binding.btnSearch.text = "🔍"
-        applyFilter()
+        rebuildAndSubmit()
     }
 
     private fun hideKeyboard() {
         (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
             .hideSoftInputFromWindow(binding.etSearch.windowToken, 0)
-    }
-
-    private fun applyFilter() {
-        val filtered = if (searchQuery.isBlank()) {
-            allItems
-        } else {
-            val q = searchQuery.filter { it.isDigit() }
-                .ifEmpty { searchQuery.lowercase() }
-            val keepIndices = mutableSetOf<Int>()
-            var lastHeaderIdx = -1
-            allItems.forEachIndexed { idx, item ->
-                when (item) {
-                    is HistoryItem.PinnedHeader -> lastHeaderIdx = idx
-                    is HistoryItem.Header       -> lastHeaderIdx = idx
-                    is HistoryItem.Record -> {
-                        val matches = if (q.all { it.isDigit() })
-                            item.record.phoneNumber.filter { it.isDigit() }.contains(q)
-                        else
-                            item.record.displayNumber.lowercase().contains(q)
-                        if (matches) {
-                            keepIndices += idx
-                            if (lastHeaderIdx >= 0) keepIndices += lastHeaderIdx
-                        }
-                    }
-                }
-            }
-            allItems.filterIndexed { idx, _ -> idx in keepIndices }
-        }
-
-        adapter.submitList(filtered)
-
-        val isEmpty = filtered.isEmpty()
-        binding.layoutEmpty.visibility = if (isEmpty) View.VISIBLE else View.GONE
-        if (isEmpty) {
-            if (allItems.isEmpty()) {
-                binding.tvEmptyIcon.text = "📋"
-                binding.tvEmptyText.text = "Chưa có lịch sử gọi"
-            } else {
-                binding.tvEmptyIcon.text = "🔍"
-                binding.tvEmptyText.text = "Không tìm thấy số \"$searchQuery\""
-            }
-        }
     }
 
     private fun android.animation.Animator.doOnEnd(action: () -> Unit) {
