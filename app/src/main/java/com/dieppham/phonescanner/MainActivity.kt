@@ -44,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     private var analyzer: PhoneNumberAnalyzer? = null
     private var pendingNumberToCall: String? = null
     private var camera: Camera? = null
+    private var cameraProvider: ProcessCameraProvider? = null
 
     // Số hiện đang hiển thị trên card xác nhận (dạng chuẩn, không format)
     private var confirmedNumber: String = ""
@@ -101,6 +102,7 @@ class MainActivity : AppCompatActivity() {
             hideConfirmationCard()
             binding.scanOverlay.resetToScanning()
             analyzer?.resume()
+            startCamera()   // bật lại camera khi quét lại
         }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -220,6 +222,7 @@ class MainActivity : AppCompatActivity() {
                 val boundCamera = cameraProvider.bindToLifecycle(
                     this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis
                 )
+                this.cameraProvider = cameraProvider
                 camera = boundCamera
                 binding.scanOverlay.post { focusOnScanZone(boundCamera) }
                 binding.previewView.setOnTouchListener { view, event ->
@@ -258,8 +261,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun stopCamera() {
+        cameraProvider?.unbindAll()
+        camera = null
+        // Tắt torch nếu đang bật
+        if (torchOn) { torchOn = false; updateTorchButton() }
+    }
+
     private fun showConfirmationCard(numbers: List<String>) {
         if (numbers.isEmpty()) return
+        stopCamera()   // tắt camera ngay khi đã có số
         // Hiện số đầu tiên (gần tâm khung nhất)
         confirmedNumber = numbers[0]
         binding.tvDetectedNumber.text = PhoneNumberExtractor.formatForDisplay(numbers[0])
