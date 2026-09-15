@@ -191,18 +191,19 @@ class MainActivity : AppCompatActivity() {
             val resolutionSelector = ResolutionSelector.Builder()
                 .setResolutionStrategy(
                     ResolutionStrategy(
-                        Size(1920, 1080),   // tăng lên full HD để OCR rõ hơn trên khung rộng
+                        Size(1280, 720),   // 720p đủ nét cho OCR, nhẹ hơn 1080p giúp xử lý nhanh hơn
                         ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
                     )
                 ).build()
             val imageAnalysis = ImageAnalysis.Builder()
                 .setResolutionSelector(resolutionSelector)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                // KHÔNG set OUTPUT_IMAGE_FORMAT — để CameraX dùng default RGBA_8888
+                // tương thích hoàn toàn với InputImage.fromMediaImage()
                 .build()
 
             val phoneAnalyzer = PhoneNumberAnalyzer(
-                requiredStableFrames = 1,
+                requiredStableFrames = 2,
                 onStableNumberDetected = { numbers ->
                     runOnUiThread {
                         vibrateDetected()
