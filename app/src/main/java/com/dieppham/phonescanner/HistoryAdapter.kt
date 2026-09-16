@@ -104,8 +104,15 @@ class HistoryAdapter(
 
             if (record.isPinned) {
                 tvTime.text = timeFmt.format(Date(record.timestamp))
-                tvCallCount.visibility = View.VISIBLE
-                tvCallCount.text = if (item.totalCallCount > 1) "${item.totalCallCount} lần" else ""
+                // Trước đây: luôn set VISIBLE rồi gán text="" khi count<=1
+                // → hiện 1 viên badge rỗng vô nghĩa. Giờ ẩn hẳn badge khi
+                // không có gì để hiện, đồng nhất với nhánh không ghim bên dưới.
+                if (item.totalCallCount > 1) {
+                    tvCallCount.visibility = View.VISIBLE
+                    tvCallCount.text = "${item.totalCallCount} lần"
+                } else {
+                    tvCallCount.visibility = View.GONE
+                }
             } else {
                 tvTime.text = timeFmt.format(Date(item.lastCallTime))
                 if (item.dailyCount > 1) {

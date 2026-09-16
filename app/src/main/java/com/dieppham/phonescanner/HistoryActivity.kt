@@ -9,6 +9,7 @@ import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -82,6 +83,7 @@ class HistoryActivity : AppCompatActivity() {
         ).attachToRecyclerView(binding.recyclerHistory)
 
         setupSearch()
+        registerBackHandler()
 
         lifecycleScope.launch {
             combine(
@@ -194,11 +196,18 @@ class HistoryActivity : AppCompatActivity() {
         }
 
         return groupMap.map { (dayKey, recs) ->
-            val displayKey = displayDayFmt.format(dbDayFmt.parse(dayKey) ?: Date())
+            // Dùng thẳng timestamp gốc của record đầu tiên trong nhóm để tạo
+            // label — KHÔNG parse ngược chuỗi dayKey (String -> Date) vì
+            // SimpleDateFormat.parse() có thể throw ParseException. Mọi
+            // record trong cùng nhóm đã chắc chắn cùng ngày (group theo
+            // đúng key này), nên lấy timestamp của bất kỳ record nào cũng
+            // cho ra đúng ngày cần hiển thị.
+            val sampleDate = Date(recs.first().timestamp)
+            val displayKey = displayDayFmt.format(sampleDate)
             val label = when (displayKey) {
                 todayDisplay     -> "HÔM NAY"
                 yesterdayDisplay -> "HÔM QUA"
-                else             -> dayLabelFmt.format(dbDayFmt.parse(dayKey) ?: Date()).uppercase()
+                else             -> dayLabelFmt.format(sampleDate).uppercase()
             }
 
             // Dedup: mỗi số chỉ 1 dòng/ngày (giữ timestamp lớn nhất = mới nhất)
@@ -344,7 +353,19 @@ class HistoryActivity : AppCompatActivity() {
         })
     }
 
-    override fun onBackPressed() {
-        if (searchVisible) hideSearch() else super.onBackPressed()
+    private fun registerBackHandler() {
+        // Dùng OnBackPressedCallback thay vì override onBackPressed() (đã
+        // deprecated từ API 33) — cách này hỗ trợ đúng cử chỉ vuốt back
+        // dự đoán (predictive back gesture) trên Android 13+.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (searchVisible) {
+                    hideSearch()
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
     }
 }
