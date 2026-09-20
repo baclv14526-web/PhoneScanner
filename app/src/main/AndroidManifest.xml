@@ -3,6 +3,11 @@
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- Quyền VIBRATE: KHÔNG phải quyền nguy hiểm (không cần xin runtime),
+         nhưng BẮT BUỘC khai báo trong manifest nếu không vibrator.vibrate()
+         sẽ throw SecurityException âm thầm — trước đây thiếu dòng này nên
+         tính năng rung khi phát hiện số không hoạt động dù code không lỗi -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <uses-feature
         android:name="android.hardware.camera"

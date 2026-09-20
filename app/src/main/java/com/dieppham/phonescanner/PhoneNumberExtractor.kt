@@ -9,19 +9,8 @@ object PhoneNumberExtractor {
     private val LANDLINE_REGEX = Regex("""^(?:\+?84|0)(2\d)(\d{7,8})$""")
 
     // -------------------------------------------------------------------------
-    // API cũ - vẫn giữ để tương thích debug label
-    // -------------------------------------------------------------------------
-    fun extractFirstValidNumber(ocrText: String): String? {
-        for (match in RAW_CANDIDATE_REGEX.findAll(ocrText)) {
-            val normalized = normalizeIfValid(cleanCandidate(match.value))
-            if (normalized != null) return normalized
-        }
-        return null
-    }
-
-    // -------------------------------------------------------------------------
-    // API mới: trả về số hợp lệ CÓ TỌA ĐỘ tâm (centerY tính theo tỉ lệ 0..1
-    // trong ảnh) để caller chọn số nào gần tâm khung hình nhất.
+    // Trả về số hợp lệ CÓ TỌA ĐỘ tâm (centerY tính theo tỉ lệ 0..1 trong
+    // ảnh) để caller (PhoneNumberAnalyzer) lọc theo vùng khung quét.
     //
     // ML Kit trả kết quả theo cấu trúc: VisionText → Block → Line → Element.
     // Mỗi Line có boundingBox -> ta dùng centerY của Line để so sánh vị trí.
@@ -53,16 +42,6 @@ object PhoneNumberExtractor {
             }
         }
         return results
-    }
-
-    // -------------------------------------------------------------------------
-    // Chọn số gần tâm ảnh nhất (centerYRatio gần 0.5 nhất).
-    // Khung xanh hướng dẫn nằm ở khoảng giữa màn hình, nên số nào có tọa độ
-    // dọc gần 0.5 nhất chính là số đang nằm trong khung xanh.
-    // -------------------------------------------------------------------------
-    fun pickClosestToCenter(candidates: List<NumberCandidate>): String? {
-        if (candidates.isEmpty()) return null
-        return candidates.minByOrNull { Math.abs(it.centerYRatio - 0.5f) }?.number
     }
 
     // -------------------------------------------------------------------------

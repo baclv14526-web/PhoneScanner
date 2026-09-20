@@ -5,9 +5,9 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import android.util.AttributeSet
@@ -37,10 +37,7 @@ class ScannerOverlayView @JvmOverloads constructor(
     private val scanLineH     = 3f * dp
 
     private val overlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_OVER)
-    }
-    private val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+        style = Paint.Style.FILL
     }
     private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -57,57 +54,82 @@ class ScannerOverlayView @JvmOverloads constructor(
     private val scanLinePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val flashPaint    = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
 
+    // Gradient + Matrix cho scan line: tạo 1 LẦN duy nhất (khi biết frameRect),
+    // sau đó chỉ TRANSLATE shader theo scanLineY mỗi frame — tránh alloc
+    // LinearGradient/int[]/float[] mới ~60 lần/giây trong onDraw(), vốn gây
+    // GC pressure và có thể làm giật animation trên chip tầm trung như A23 5G.
+    private val scanGradientMatrix = Matrix()
+    private var scanGradient: LinearGradient? = null
+
     val frameRect = RectF()
+    // Path "khoét lỗ": viền ngoài = toàn màn hình, viền trong = frameRect,
+    // dùng FillType.EVEN_ODD -> vẽ 1 lần duy nhất ra đúng vùng tối xung
+    // quanh khung, không cần PorterDuff.CLEAR + hardware layer như trước.
+    private val overlayPath = Path()
     private var scanLineY   = 0f
     private var flashAlpha  = 0
     private var isSuccess   = false
     private var scanAnimator:  ValueAnimator? = null
     private var flashAnimator: ValueAnimator? = null
 
-    init { setLayerType(LAYER_TYPE_HARDWARE, null) }
+    // Không còn cần LAYER_TYPE_HARDWARE — kỹ thuật Path EVEN_ODD hoạt động
+    // đúng trên layer mặc định (NONE), không cần ép GPU giữ offscreen buffer
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        // Đặt khung ở 40%-giữa màn hình — căn đúng trên A23 5G 20:9
         val top = h * 0.38f
         frameRect.set(frameMarginH, top, w - frameMarginH, top + frameHeight)
+
+        // Build lại path khoét lỗ — chỉ cần làm khi kích thước/frameRect
+        // đổi (onSizeChanged), KHÔNG build lại trong onDraw()
+        overlayPath.reset()
+        overlayPath.fillType = Path.FillType.EVEN_ODD
+        overlayPath.addRect(0f, 0f, w.toFloat(), h.toFloat(), Path.Direction.CW)
+        overlayPath.addRoundRect(frameRect, frameRadius, frameRadius, Path.Direction.CW)
+
+        // Gradient chỉ phụ thuộc frameRect.left/right (cố định) — tạo 1 lần
+        // ở đây; vị trí dọc (scanLineY) sau này chỉ cần translate Matrix
+        scanGradient = LinearGradient(
+            frameRect.left, 0f, frameRect.right, scanLineH * 6,
+            intArrayOf(Color.TRANSPARENT, COLOR_FRAME, Color.TRANSPARENT),
+            floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP
+        )
+        scanLinePaint.shader = scanGradient
+
         startScanAnimation()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val w = width.toFloat(); val h = height.toFloat()
 
-        // 1. Phủ tối toàn màn hình
+        // 1. Phủ tối xung quanh khung — 1 draw call duy nhất nhờ Path
+        // EVEN_ODD (thay vì draw full rect rồi CLEAR khoét lỗ như trước)
         overlayPaint.color = COLOR_OVERLAY
-        canvas.drawRect(0f, 0f, w, h, overlayPaint)
+        canvas.drawPath(overlayPath, overlayPaint)
 
-        // 2. Khoét lỗ trong suốt vùng khung
-        canvas.drawRoundRect(frameRect, frameRadius, frameRadius, clearPaint)
-
-        // 3. Flash xanh lá khi nhận diện được
+        // 2. Flash xanh lá khi nhận diện được
         if (flashAlpha > 0) {
             flashPaint.color  = COLOR_SUCCESS
             flashPaint.alpha  = flashAlpha
             canvas.drawRoundRect(frameRect, frameRadius, frameRadius, flashPaint)
         }
 
-        // 4. Viền mỏng
+        // 3. Viền mỏng
         canvas.drawRoundRect(frameRect, frameRadius, frameRadius, framePaint)
 
-        // 5. 4 góc nhấn mạnh
+        // 4. 4 góc nhấn mạnh
         cornerPaint.color = if (isSuccess) COLOR_SUCCESS else COLOR_FRAME
         drawCorners(canvas)
 
-        // 6. Scan line chạy lên xuống
+        // 5. Scan line chạy lên xuống — dùng lại gradient đã cache, chỉ
+        // translate theo scanLineY thay vì tạo LinearGradient mới mỗi frame
         if (!isSuccess) {
-            val grad = LinearGradient(
-                frameRect.left, scanLineY, frameRect.right, scanLineY + scanLineH * 6,
-                intArrayOf(Color.TRANSPARENT, COLOR_FRAME, Color.TRANSPARENT),
-                floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP
+            scanGradientMatrix.setTranslate(0f, scanLineY)
+            scanGradient?.setLocalMatrix(scanGradientMatrix)
+            canvas.drawRect(
+                frameRect.left, scanLineY, frameRect.right, scanLineY + scanLineH,
+                scanLinePaint
             )
-            scanLinePaint.shader = grad
-            canvas.drawRect(frameRect.left, scanLineY, frameRect.right, scanLineY + scanLineH, scanLinePaint)
         }
     }
 
