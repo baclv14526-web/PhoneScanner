@@ -2,6 +2,10 @@ package com.dieppham.phonescanner
 
 import android.Manifest
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -32,7 +36,13 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.dieppham.phonescanner.databinding.ActivityMainBinding
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.InputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -76,6 +86,11 @@ class MainActivity : AppCompatActivity() {
             else Toast.makeText(this, getString(R.string.permission_call_denied), Toast.LENGTH_LONG).show()
         }
 
+    private val pickImageLauncher =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            uri?.let { scanImageFromGallery(it) }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -93,6 +108,11 @@ class MainActivity : AppCompatActivity() {
 
         // Nút torch thủ công
         binding.btnTorch.setOnClickListener { toggleTorchManual() }
+
+        // Nút chọn ảnh từ thư viện để quét số
+        binding.btnGallery.setOnClickListener {
+            pickImageLauncher.launch("image/*")
+        }
 
         binding.btnCall.setOnClickListener {
             requestCallWithPermission(confirmedNumber)
@@ -251,6 +271,111 @@ class MainActivity : AppCompatActivity() {
         val action = FocusMeteringAction.Builder(pt, FocusMeteringAction.FLAG_AF)
             .disableAutoCancel().build()
         camera.cameraControl.startFocusAndMetering(action)
+    }
+
+    // -------------------------------------------------------------------------
+    // Quét số điện thoại từ ảnh chọn trong thư viện
+    // -------------------------------------------------------------------------
+
+    private fun scanImageFromGallery(uri: Uri) {
+        binding.layoutGalleryLoading.visibility = View.VISIBLE
+        lifecycleScope.launch {
+            val bitmap = try {
+                withContext(Dispatchers.IO) { loadRotatedBitmap(uri) }
+            } catch (e: Exception) {
+                null
+            }
+
+            if (bitmap == null) {
+                binding.layoutGalleryLoading.visibility = View.GONE
+                Toast.makeText(this@MainActivity, "Không đọc được ảnh đã chọn", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+
+            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+            val inputImage = InputImage.fromBitmap(bitmap, 0)
+            recognizer.process(inputImage)
+                .addOnSuccessListener { visionText ->
+                    binding.layoutGalleryLoading.visibility = View.GONE
+                    val candidates = PhoneNumberExtractor
+                        .extractCandidatesWithPosition(visionText, bitmap.height)
+                    val numbers = candidates.map { it.number }.distinct()
+                    if (numbers.isEmpty()) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Không tìm thấy số điện thoại hợp lệ trong ảnh",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        vibrateDetected()
+                        showConfirmationCard(numbers)
+                    }
+                }
+                .addOnFailureListener { e ->
+                    binding.layoutGalleryLoading.visibility = View.GONE
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Lỗi nhận diện: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                .addOnCompleteListener {
+                    recognizer.close()
+                    bitmap.recycle()
+                }
+        }
+    }
+
+    /**
+     * Đọc ảnh từ Uri và tự xoay lại theo thông tin EXIF (ảnh chụp từ một số
+     * máy/app lưu sai chiều, cần đọc Orientation tag để xoay cho đúng trước khi OCR).
+     * Đồng thời downsample nếu ảnh quá lớn để tránh OOM.
+     */
+    private fun loadRotatedBitmap(uri: Uri): Bitmap? {
+        val resolver = contentResolver
+
+        // Bước 1: đọc kích thước gốc để tính tỉ lệ downsample (tránh OOM với ảnh to)
+        val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(uri)?.use { stream: InputStream ->
+            BitmapFactory.decodeStream(stream, null, boundsOptions)
+        } ?: return null
+
+        var sampleSize = 1
+        val maxDim = 2048
+        while (boundsOptions.outWidth / sampleSize > maxDim ||
+            boundsOptions.outHeight / sampleSize > maxDim
+        ) {
+            sampleSize *= 2
+        }
+
+        val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        val rawBitmap = resolver.openInputStream(uri)?.use { stream: InputStream ->
+            BitmapFactory.decodeStream(stream, null, decodeOptions)
+        } ?: return null
+
+        // Bước 2: đọc Exif orientation và xoay nếu cần
+        val orientation = resolver.openInputStream(uri)?.use { stream: InputStream ->
+            ExifInterface(stream).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+        } ?: ExifInterface.ORIENTATION_NORMAL
+
+        val rotationDegrees = when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90  -> 90
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270
+            else -> 0
+        }
+
+        if (rotationDegrees == 0) return rawBitmap
+
+        val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+        val rotated = Bitmap.createBitmap(
+            rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true
+        )
+        if (rotated !== rawBitmap) rawBitmap.recycle()
+        return rotated
     }
 
     private fun updateDebugLabel(rawText: String, error: String?) {
