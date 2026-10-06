@@ -101,9 +101,8 @@ class MainActivity : AppCompatActivity() {
         binding.btnRescan.setOnClickListener {
             hideConfirmationCard()
             binding.scanOverlay.resetToScanning()
-            // Không cần analyzer?.resume() ở đây — startCamera() tạo
-            // PhoneNumberAnalyzer hoàn toàn mới bên dưới (mặc định chưa pause)
-            startCamera()
+            analyzer?.resume()
+            startCamera()   // bật lại camera khi quét lại
         }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -136,7 +135,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun hideDebug() {
-        analyzer?.debugEnabled = false
         binding.tvDebug.animate().alpha(0f).setDuration(400)
             .withEndAction { binding.tvDebug.visibility = View.GONE }
             .start()
@@ -149,7 +147,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDebug() {
-        analyzer?.debugEnabled = true
         binding.tvDebug.visibility = View.VISIBLE
         binding.tvDebug.animate().alpha(1f).setDuration(300).start()
         binding.btnDebugToggle.visibility = View.VISIBLE
@@ -194,24 +191,18 @@ class MainActivity : AppCompatActivity() {
             val resolutionSelector = ResolutionSelector.Builder()
                 .setResolutionStrategy(
                     ResolutionStrategy(
-                        Size(1280, 720),   // 720p đủ nét cho OCR, nhẹ hơn 1080p giúp xử lý nhanh hơn
+                        Size(1920, 1080),   // tăng lên full HD để OCR rõ hơn trên khung rộng
                         ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
                     )
                 ).build()
             val imageAnalysis = ImageAnalysis.Builder()
                 .setResolutionSelector(resolutionSelector)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                // KHÔNG set OUTPUT_IMAGE_FORMAT — để CameraX dùng default RGBA_8888
-                // tương thích hoàn toàn với InputImage.fromMediaImage()
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .build()
 
-            // Đóng analyzer cũ (nếu có) trước khi tạo cái mới — tránh leak
-            // TextRecognizer client mỗi lần startCamera() chạy lại (mỗi lần
-            // bấm "Quét lại" sau khi đã có 1 analyzer từ trước)
-            analyzer?.close()
-
             val phoneAnalyzer = PhoneNumberAnalyzer(
-                requiredStableFrames = 2,
+                requiredStableFrames = 1,
                 onStableNumberDetected = { numbers ->
                     runOnUiThread {
                         vibrateDetected()
@@ -223,12 +214,6 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread { updateDebugLabel(rawText, error) }
                 }
             )
-            // Đồng bộ ngay: analyzer mới mặc định debugEnabled=true, nhưng
-            // nếu label debug đã bị ẩn từ trước (vd: đã qua 5s tự ẩn ở lần
-            // quét trước, giờ bấm "Quét lại") thì phải tắt luôn ở đây —
-            // nếu không debugText lại âm thầm được build mỗi frame dù label
-            // đang GONE trên màn hình.
-            phoneAnalyzer.debugEnabled = binding.tvDebug.visibility == View.VISIBLE
             analyzer = phoneAnalyzer
             imageAnalysis.setAnalyzer(cameraExecutor, phoneAnalyzer)
 
@@ -380,8 +365,12 @@ class MainActivity : AppCompatActivity() {
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         lightSensor   = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT)
 
-        // Nút torch luôn hiện — dùng để override thủ công dù có sensor hay
-        // không (nếu không có sensor thì đây là cách DUY NHẤT bật torch)
+        if (lightSensor == null) {
+            // Thiết bị không có cảm biến ánh sáng — chỉ dùng nút thủ công
+            binding.btnTorch.visibility = View.VISIBLE
+            updateTorchButton()
+        }
+        // Nếu có sensor, nút torch vẫn hiện nhưng nhỏ hơn (dùng để override)
         binding.btnTorch.visibility = View.VISIBLE
         updateTorchButton()
     }
@@ -409,9 +398,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateTorchButton() {
-        // Trước đây if/else trả cùng 1 emoji ở cả 2 nhánh — code thừa,
-        // alpha đã đủ để phân biệt bật/tắt nên bỏ luôn điều kiện thừa
-        binding.btnTorch.text = "🔦"
+        binding.btnTorch.text = if (torchOn) "🔦" else "🔦"
         binding.btnTorch.alpha = if (torchOn) 1f else 0.45f
     }
 
@@ -437,7 +424,6 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         binding.tvDebug.removeCallbacks(hideDebugRunnable)
         binding.btnTorch.removeCallbacks(clearOverrideRunnable)
-        analyzer?.close()
         cameraExecutor.shutdown()
     }
 

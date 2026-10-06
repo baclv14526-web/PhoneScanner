@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [CallRecord::class], version = 3, exportSchema = false)
+@Database(entities = [CallRecord::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun callRecordDao(): CallRecordDao
@@ -25,23 +25,6 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        // Migration 2→3: thêm index để tối ưu tốc độ GROUP BY / ORDER BY
-        // khi lịch sử phát triển lớn dần. Tên index PHẢI khớp chính xác
-        // với quy ước đặt tên tự động của Room (index_<table>_<cột nối bằng "_">)
-        // — nếu không, Room sẽ báo lỗi schema mismatch ở lần mở app tiếp theo.
-        private val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    "CREATE INDEX IF NOT EXISTS index_call_records_phoneNumber " +
-                    "ON call_records(phoneNumber)"
-                )
-                db.execSQL(
-                    "CREATE INDEX IF NOT EXISTS index_call_records_isPinned_pinnedAt_timestamp " +
-                    "ON call_records(isPinned, pinnedAt, timestamp)"
-                )
-            }
-        }
-
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -49,7 +32,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "phonescanner.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2)
                 .build()
                 .also { INSTANCE = it }
             }

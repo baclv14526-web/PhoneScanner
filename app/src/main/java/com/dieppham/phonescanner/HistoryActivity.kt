@@ -9,7 +9,6 @@ import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
-import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -33,15 +32,8 @@ class HistoryActivity : AppCompatActivity() {
     private val displayDayFmt = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
     private val dbDayFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 
-    // Nguồn dữ liệu gốc — records gom nhóm theo ngày (CHỈ chứa số CHƯA ghim,
-    // vì buildGroups() lọc bỏ số đã ghim trước khi gom nhóm)
+    // Nguồn dữ liệu gốc — records gom nhóm theo ngày
     private var allGroups: List<DayGroup> = emptyList()
-
-    // Số đã ghim — lưu RIÊNG ở đây vì allGroups không bao giờ chứa chúng.
-    // Trước đây buildFlatList() cố trích xuất số ghim từ allGroups.flatMap{}
-    // — luôn trả về rỗng vì allGroups đã loại bỏ số ghim từ bước buildGroups(),
-    // khiến section "ĐÃ GHIM" không bao giờ hiện dù DB lưu đúng isPinned=true.
-    private var pinnedRecords: List<HistoryItem.Record> = emptyList()
 
     // Trạng thái expand/collapse: dayKey -> expanded (mặc định hôm nay = true)
     private val expandedState = mutableMapOf<String, Boolean>()
@@ -90,7 +82,6 @@ class HistoryActivity : AppCompatActivity() {
         ).attachToRecyclerView(binding.recyclerHistory)
 
         setupSearch()
-        registerBackHandler()
 
         lifecycleScope.launch {
             combine(
@@ -101,23 +92,6 @@ class HistoryActivity : AppCompatActivity() {
             }.collect { (records, totalMap) ->
                 val dailyStats = dao.getDailyStatsList()
                 val dailyMap = dailyStats.associate { "${it.phoneNumber}|${it.dayKey}" to it }
-
-                // Tính pinnedRecords TRƯỚC — buildGroups() bên dưới sẽ lọc
-                // bỏ số đã ghim, nên phải trích xuất chúng ở đây, từ
-                // `records` gốc (chưa lọc), nếu không sẽ mất luôn không
-                // còn nơi nào khác truy cập lại được.
-                pinnedRecords = records
-                    .filter { it.isPinned }
-                    .distinctBy { it.phoneNumber }
-                    .map { record ->
-                        HistoryItem.Record(
-                            record         = record,
-                            totalCallCount = totalMap[record.phoneNumber] ?: 1,
-                            dailyCount     = 1,
-                            lastCallTime   = record.timestamp
-                        )
-                    }
-
                 allGroups = buildGroups(records, totalMap, dailyMap)
                 // Hôm nay mặc định mở, các ngày cũ mặc định đóng
                 val todayKey = dbDayFmt.format(Date())
@@ -156,11 +130,7 @@ class HistoryActivity : AppCompatActivity() {
         val isEmpty = flat.none { it is HistoryItem.Record || it is HistoryItem.PinnedHeader }
         binding.layoutEmpty.visibility = if (isEmpty) View.VISIBLE else View.GONE
         if (isEmpty) {
-            // "Chưa có lịch sử" chỉ đúng khi THỰC SỰ không có dữ liệu nào cả
-            // (cả lịch sử theo ngày lẫn số ghim) — trước đây chỉ check
-            // allGroups.isEmpty(), bỏ sót trường hợp user chỉ có số ghim mà
-            // không có lịch sử thường, đang tìm kiếm không khớp gì.
-            if (allGroups.isEmpty() && pinnedRecords.isEmpty()) {
+            if (allGroups.isEmpty()) {
                 binding.tvEmptyIcon.text = "📋"
                 binding.tvEmptyText.text = "Chưa có lịch sử gọi"
             } else {
@@ -177,12 +147,12 @@ class HistoryActivity : AppCompatActivity() {
     private fun buildFlatList(groups: List<DayGroup>): List<HistoryItem> {
         val result = mutableListOf<HistoryItem>()
 
-        // Section ghim — luôn mở, không có header toggle. Dùng pinnedRecords
-        // (tính riêng trong collect{}) — KHÔNG trích từ allGroups vì
-        // allGroups không bao giờ chứa số đã ghim (xem comment ở khai báo field)
-        if (pinnedRecords.isNotEmpty() && searchQuery.isBlank()) {
+        // Section ghim — luôn mở, không có header toggle
+        val pinned = allGroups.flatMap { g -> g.records.filter { it.record.isPinned } }
+            .distinctBy { it.record.phoneNumber }
+        if (pinned.isNotEmpty() && searchQuery.isBlank()) {
             result += HistoryItem.PinnedHeader
-            result += pinnedRecords
+            result += pinned
         }
 
         // Lịch sử theo ngày
@@ -224,18 +194,11 @@ class HistoryActivity : AppCompatActivity() {
         }
 
         return groupMap.map { (dayKey, recs) ->
-            // Dùng thẳng timestamp gốc của record đầu tiên trong nhóm để tạo
-            // label — KHÔNG parse ngược chuỗi dayKey (String -> Date) vì
-            // SimpleDateFormat.parse() có thể throw ParseException. Mọi
-            // record trong cùng nhóm đã chắc chắn cùng ngày (group theo
-            // đúng key này), nên lấy timestamp của bất kỳ record nào cũng
-            // cho ra đúng ngày cần hiển thị.
-            val sampleDate = Date(recs.first().timestamp)
-            val displayKey = displayDayFmt.format(sampleDate)
+            val displayKey = displayDayFmt.format(dbDayFmt.parse(dayKey) ?: Date())
             val label = when (displayKey) {
                 todayDisplay     -> "HÔM NAY"
                 yesterdayDisplay -> "HÔM QUA"
-                else             -> dayLabelFmt.format(sampleDate).uppercase()
+                else             -> dayLabelFmt.format(dbDayFmt.parse(dayKey) ?: Date()).uppercase()
             }
 
             // Dedup: mỗi số chỉ 1 dòng/ngày (giữ timestamp lớn nhất = mới nhất)
@@ -381,19 +344,7 @@ class HistoryActivity : AppCompatActivity() {
         })
     }
 
-    private fun registerBackHandler() {
-        // Dùng OnBackPressedCallback thay vì override onBackPressed() (đã
-        // deprecated từ API 33) — cách này hỗ trợ đúng cử chỉ vuốt back
-        // dự đoán (predictive back gesture) trên Android 13+.
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (searchVisible) {
-                    hideSearch()
-                } else {
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
-                }
-            }
-        })
+    override fun onBackPressed() {
+        if (searchVisible) hideSearch() else super.onBackPressed()
     }
 }
