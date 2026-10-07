@@ -59,6 +59,9 @@ class MainActivity : AppCompatActivity() {
     // Số hiện đang hiển thị trên card xác nhận (dạng chuẩn, không format)
     private var confirmedNumber: String = ""
 
+    // true khi đang xử lý OCR cho ảnh chọn từ thư viện — chặn camera/nút khác can thiệp
+    private var isProcessingGalleryImage = false
+
     // --- Đèn flash / ánh sáng ---
     private lateinit var sensorManager: SensorManager
     private var lightSensor: Sensor? = null
@@ -111,6 +114,7 @@ class MainActivity : AppCompatActivity() {
 
         // Nút chọn ảnh từ thư viện để quét số
         binding.btnGallery.setOnClickListener {
+            if (isProcessingGalleryImage) return@setOnClickListener
             pickImageLauncher.launch("image/*")
         }
 
@@ -278,6 +282,15 @@ class MainActivity : AppCompatActivity() {
     // -------------------------------------------------------------------------
 
     private fun scanImageFromGallery(uri: Uri) {
+        if (isProcessingGalleryImage) return
+        isProcessingGalleryImage = true
+
+        // Tạm dừng camera để tránh xung đột: nếu camera đang quét trực tiếp và
+        // cùng lúc OCR ảnh thư viện trả về, cả hai có thể cùng gọi showConfirmationCard()
+        // và ghi đè lẫn nhau. Dừng hẳn camera trong lúc xử lý ảnh cho an toàn.
+        analyzer?.pause()
+        stopCamera()
+
         binding.layoutGalleryLoading.visibility = View.VISIBLE
         lifecycleScope.launch {
             val bitmap = try {
@@ -286,9 +299,17 @@ class MainActivity : AppCompatActivity() {
                 null
             }
 
+            // Activity có thể đã bị destroy trong lúc decode ảnh (xoay màn hình, back...)
+            if (isFinishing || isDestroyed) {
+                bitmap?.recycle()
+                return@launch
+            }
+
             if (bitmap == null) {
+                isProcessingGalleryImage = false
                 binding.layoutGalleryLoading.visibility = View.GONE
                 Toast.makeText(this@MainActivity, "Không đọc được ảnh đã chọn", Toast.LENGTH_LONG).show()
+                startCamera()
                 return@launch
             }
 
@@ -296,7 +317,7 @@ class MainActivity : AppCompatActivity() {
             val inputImage = InputImage.fromBitmap(bitmap, 0)
             recognizer.process(inputImage)
                 .addOnSuccessListener { visionText ->
-                    binding.layoutGalleryLoading.visibility = View.GONE
+                    if (isFinishing || isDestroyed) return@addOnSuccessListener
                     val candidates = PhoneNumberExtractor
                         .extractCandidatesWithPosition(visionText, bitmap.height)
                     val numbers = candidates.map { it.number }.distinct()
@@ -306,22 +327,28 @@ class MainActivity : AppCompatActivity() {
                             "Không tìm thấy số điện thoại hợp lệ trong ảnh",
                             Toast.LENGTH_LONG
                         ).show()
+                        startCamera()
                     } else {
                         vibrateDetected()
                         showConfirmationCard(numbers)
                     }
                 }
                 .addOnFailureListener { e ->
-                    binding.layoutGalleryLoading.visibility = View.GONE
+                    if (isFinishing || isDestroyed) return@addOnFailureListener
                     Toast.makeText(
                         this@MainActivity,
                         "Lỗi nhận diện: ${e.message}",
                         Toast.LENGTH_LONG
                     ).show()
+                    startCamera()
                 }
                 .addOnCompleteListener {
                     recognizer.close()
                     bitmap.recycle()
+                    isProcessingGalleryImage = false
+                    if (!isFinishing && !isDestroyed) {
+                        binding.layoutGalleryLoading.visibility = View.GONE
+                    }
                 }
         }
     }
