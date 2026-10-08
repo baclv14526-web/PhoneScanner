@@ -4,7 +4,9 @@ import com.google.mlkit.vision.text.Text
 
 object PhoneNumberExtractor {
 
-    private val RAW_CANDIDATE_REGEX = Regex("""[+]?[\d][\d\s.\-()]{7,16}\d""")
+    // Nới thêm các ký tự phân cách hay gặp trong ảnh chụp màn hình chat
+    // (dấu hai chấm sau nhãn "Zalo:", gạch chéo, bullet...) để không bị đứt mạch số.
+    private val RAW_CANDIDATE_REGEX = Regex("""[+]?[\d][\d\s.\-()/:•]{7,18}\d""")
     private val MOBILE_REGEX  = Regex("""^(?:\+?84|0)(3|5|7|8|9)(\d{8})$""")
     private val LANDLINE_REGEX = Regex("""^(?:\+?84|0)(2\d)(\d{7,8})$""")
 
@@ -33,22 +35,40 @@ object PhoneNumberExtractor {
         imageHeight: Int
     ): List<NumberCandidate> {
         val results = mutableListOf<NumberCandidate>()
+        val seen = mutableSetOf<String>()
 
         for (block in visionText.textBlocks) {
+            // Vòng 1: thử khớp trên từng dòng riêng lẻ — đúng cho hầu hết ảnh
+            // chụp biển quảng cáo/cột điện, nơi số nằm gọn trên 1 dòng ngang.
             for (line in block.lines) {
-                // Thử khớp toàn bộ text của dòng này
-                val lineText = line.text
-                for (match in RAW_CANDIDATE_REGEX.findAll(lineText)) {
+                for (match in RAW_CANDIDATE_REGEX.findAll(line.text)) {
                     val normalized = normalizeIfValid(cleanCandidate(match.value))
-                    if (normalized != null) {
+                    if (normalized != null && seen.add(normalized)) {
                         val box = line.boundingBox
                         val centerY = if (box != null && imageHeight > 0)
                             box.exactCenterY() / imageHeight
                         else
-                            0.5f   // fallback: coi như ở giữa nếu không có bbox
+                            0.5f
                         results += NumberCandidate(normalized, centerY)
-                        break   // chỉ lấy 1 số mỗi dòng, tránh đếm trùng
                     }
+                }
+            }
+
+            // Vòng 2: ghép toàn bộ các dòng trong block lại thành 1 chuỗi.
+            // Ảnh chụp màn hình chat thường bị ML Kit tách số điện thoại thành
+            // nhiều Line khác nhau (xuống dòng tự nhiên trong bong bóng chat),
+            // nên khớp riêng từng dòng sẽ bỏ sót. Ghép lại bằng khoảng trắng
+            // để bắt được các số bị ngắt giữa dòng.
+            val blockText = block.lines.joinToString(" ") { it.text }
+            for (match in RAW_CANDIDATE_REGEX.findAll(blockText)) {
+                val normalized = normalizeIfValid(cleanCandidate(match.value))
+                if (normalized != null && seen.add(normalized)) {
+                    val box = block.boundingBox
+                    val centerY = if (box != null && imageHeight > 0)
+                        box.exactCenterY() / imageHeight
+                    else
+                        0.5f
+                    results += NumberCandidate(normalized, centerY)
                 }
             }
         }
