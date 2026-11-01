@@ -5,4 +5,6 @@
     <string name="btn_rescan">Quét lại</string>
     <string name="permission_camera_denied">Cần quyền Camera để quét số</string>
     <string name="permission_call_denied">Cần quyền Gọi điện để thực hiện cuộc gọi</string>
+    <string name="auto_call_on">⚡ Tự gọi: BẬT</string>
+    <string name="auto_call_off">⚡ Tự gọi: TẮT</string>
 </resources>

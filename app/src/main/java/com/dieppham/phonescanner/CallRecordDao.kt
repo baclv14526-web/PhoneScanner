@@ -23,21 +23,11 @@ interface CallRecordDao {
     """)
     fun getCallStats(): Flow<List<CallStats>>
 
-    // Flow version — dùng trong combine
+    // Thống kê theo ngày. 'localtime' bắt buộc: nếu không SQLite tính ngày theo UTC,
+    // lệch với SimpleDateFormat (giờ máy) -> đếm sai quanh nửa đêm ở múi giờ VN.
     @Query("""
         SELECT phoneNumber, COUNT(*) as callCount, MAX(timestamp) as lastCall,
-               strftime('%Y-%m-%d', timestamp/1000, 'unixepoch') as dayKey
-        FROM call_records
-        WHERE isPinned = 0
-        GROUP BY phoneNumber, dayKey
-        ORDER BY lastCall DESC
-    """)
-    fun getDailyStats(): Flow<List<DailyCallStats>>
-
-    // Suspend one-shot — dùng trong nested coroutine (không cần Flow)
-    @Query("""
-        SELECT phoneNumber, COUNT(*) as callCount, MAX(timestamp) as lastCall,
-               strftime('%Y-%m-%d', timestamp/1000, 'unixepoch') as dayKey
+               strftime('%Y-%m-%d', timestamp/1000, 'unixepoch', 'localtime') as dayKey
         FROM call_records
         WHERE isPinned = 0
         GROUP BY phoneNumber, dayKey

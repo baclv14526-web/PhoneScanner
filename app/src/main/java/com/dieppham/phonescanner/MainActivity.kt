@@ -62,6 +62,11 @@ class MainActivity : AppCompatActivity() {
     // true khi đang xử lý OCR cho ảnh chọn từ thư viện — chặn camera/nút khác can thiệp
     private var isProcessingGalleryImage = false
 
+    // Tự động gọi ngay sau khi quét được số (không cần bấm xác nhận)
+    private var autoCallEnabled = false
+    private val PREFS_NAME = "phonescanner_prefs"
+    private val PREF_AUTO_CALL = "auto_call_enabled"
+
     // --- Đèn flash / ánh sáng ---
     private lateinit var sensorManager: SensorManager
     private var lightSensor: Sensor? = null
@@ -101,8 +106,13 @@ class MainActivity : AppCompatActivity() {
 
         dao = AppDatabase.get(this).callRecordDao()
 
+        // Đọc cài đặt tự động gọi đã lưu
+        autoCallEnabled = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getBoolean(PREF_AUTO_CALL, false)
+
         setupDebugLabel()
         setupLightSensor()
+        setupAutoCallButton()
 
         // Nút mở lịch sử (góc trên phải)
         binding.btnHistory.setOnClickListener {
@@ -158,7 +168,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Nút bật/tắt tự động gọi
+    // -------------------------------------------------------------------------
+
+    private fun setupAutoCallButton() {
+        updateAutoCallButton()
+        binding.btnAutoCall.setOnClickListener {
+            autoCallEnabled = !autoCallEnabled
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                .putBoolean(PREF_AUTO_CALL, autoCallEnabled)
+                .apply()
+            updateAutoCallButton()
+            val msg = if (autoCallEnabled)
+                "Tự động gọi: BẬT — quét số sẽ gọi ngay"
+            else
+                "Tự động gọi: TẮT"
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun updateAutoCallButton() {
+        if (autoCallEnabled) {
+            binding.btnAutoCall.text = getString(R.string.auto_call_on)
+            binding.btnAutoCall.setTextColor(android.graphics.Color.BLACK)
+            binding.btnAutoCall.setBackgroundResource(R.drawable.bg_auto_call_on)
+        } else {
+            binding.btnAutoCall.text = getString(R.string.auto_call_off)
+            binding.btnAutoCall.setTextColor(0x80FFFFFF.toInt())
+            binding.btnAutoCall.setBackgroundResource(R.drawable.bg_auto_call_off)
+        }
+    }
+
     private fun hideDebug() {
+        analyzer?.debugEnabled = false
         binding.tvDebug.animate().alpha(0f).setDuration(400)
             .withEndAction { binding.tvDebug.visibility = View.GONE }
             .start()
@@ -171,6 +214,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDebug() {
+        analyzer?.debugEnabled = true
         binding.tvDebug.visibility = View.VISIBLE
         binding.tvDebug.animate().alpha(1f).setDuration(300).start()
         binding.btnDebugToggle.visibility = View.VISIBLE
@@ -215,18 +259,19 @@ class MainActivity : AppCompatActivity() {
             val resolutionSelector = ResolutionSelector.Builder()
                 .setResolutionStrategy(
                     ResolutionStrategy(
-                        Size(1920, 1080),   // tăng lên full HD để OCR rõ hơn trên khung rộng
+                        Size(1280, 720),    // đủ nét cho OCR, nhanh hơn Full HD
                         ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
                     )
                 ).build()
             val imageAnalysis = ImageAnalysis.Builder()
                 .setResolutionSelector(resolutionSelector)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .build()
 
+            // Đóng analyzer cũ để giải phóng TextRecognizer native (tránh leak mỗi lần Quét lại)
+            analyzer?.close()
             val phoneAnalyzer = PhoneNumberAnalyzer(
-                requiredStableFrames = 1,
+                requiredStableFrames = 2,
                 onStableNumberDetected = { numbers ->
                     runOnUiThread {
                         vibrateDetected()
@@ -238,6 +283,7 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread { updateDebugLabel(rawText, error) }
                 }
             )
+            phoneAnalyzer.debugEnabled = binding.tvDebug.visibility == View.VISIBLE
             analyzer = phoneAnalyzer
             imageAnalysis.setAnalyzer(cameraExecutor, phoneAnalyzer)
 
@@ -281,6 +327,17 @@ class MainActivity : AppCompatActivity() {
     // Quét số điện thoại từ ảnh chọn trong thư viện
     // -------------------------------------------------------------------------
 
+    // Bật lại camera sau khi quét ảnh thất bại — chỉ khi không có card xác nhận đang hiện
+    // (nếu không, camera chạy ngầm dưới card và có thể ghi đè số đang hiển thị)
+    // và đã có quyền camera.
+    private fun resumeCameraIfIdle() {
+        val hasPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        if (binding.cardConfirm.visibility != View.VISIBLE && camera == null && hasPermission) {
+            startCamera()
+        }
+    }
+
     private fun scanImageFromGallery(uri: Uri) {
         if (isProcessingGalleryImage) return
         isProcessingGalleryImage = true
@@ -309,7 +366,7 @@ class MainActivity : AppCompatActivity() {
                 isProcessingGalleryImage = false
                 binding.layoutGalleryLoading.visibility = View.GONE
                 Toast.makeText(this@MainActivity, "Không đọc được ảnh đã chọn", Toast.LENGTH_LONG).show()
-                startCamera()
+                resumeCameraIfIdle()
                 return@launch
             }
 
@@ -327,7 +384,7 @@ class MainActivity : AppCompatActivity() {
                             "Không tìm thấy số điện thoại hợp lệ trong ảnh",
                             Toast.LENGTH_LONG
                         ).show()
-                        startCamera()
+                        resumeCameraIfIdle()
                     } else {
                         vibrateDetected()
                         showConfirmationCard(numbers)
@@ -340,7 +397,7 @@ class MainActivity : AppCompatActivity() {
                         "Lỗi nhận diện: ${e.message}",
                         Toast.LENGTH_LONG
                     ).show()
-                    startCamera()
+                    resumeCameraIfIdle()
                 }
                 .addOnCompleteListener {
                     recognizer.close()
@@ -423,6 +480,15 @@ class MainActivity : AppCompatActivity() {
     private fun showConfirmationCard(numbers: List<String>) {
         if (numbers.isEmpty()) return
         stopCamera()   // tắt camera ngay khi đã có số
+
+        // Chế độ tự động gọi: bỏ qua card xác nhận, gọi thẳng số đầu tiên
+        if (autoCallEnabled) {
+            requestCallWithPermission(numbers[0])
+            // Reset overlay để sẵn sàng quét tiếp sau khi trở về app
+            binding.scanOverlay.resetToScanning()
+            return
+        }
+
         // Hiện số đầu tiên (gần tâm khung nhất)
         confirmedNumber = numbers[0]
         binding.tvDetectedNumber.text = PhoneNumberExtractor.formatForDisplay(numbers[0])
@@ -562,6 +628,8 @@ class MainActivity : AppCompatActivity() {
                 SensorManager.SENSOR_DELAY_NORMAL   // ~5 lần/giây, đủ dùng, không tốn pin
             )
         }
+        // Khi quay lại app (sau khi gọi xong), bật lại camera nếu đang tắt và không có card
+        resumeCameraIfIdle()
     }
 
     override fun onPause() {
@@ -576,6 +644,7 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         binding.tvDebug.removeCallbacks(hideDebugRunnable)
         binding.btnTorch.removeCallbacks(clearOverrideRunnable)
+        analyzer?.close()
         cameraExecutor.shutdown()
     }
 

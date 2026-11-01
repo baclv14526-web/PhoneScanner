@@ -9,6 +9,7 @@ import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -34,6 +35,9 @@ class HistoryActivity : AppCompatActivity() {
 
     // Nguồn dữ liệu gốc — records gom nhóm theo ngày
     private var allGroups: List<DayGroup> = emptyList()
+
+    // Các số đã ghim — lấy trực tiếp từ DB (buildGroups() đã loại bản ghi ghim khỏi allGroups)
+    private var pinnedRecords: List<HistoryItem.Record> = emptyList()
 
     // Trạng thái expand/collapse: dayKey -> expanded (mặc định hôm nay = true)
     private val expandedState = mutableMapOf<String, Boolean>()
@@ -82,6 +86,7 @@ class HistoryActivity : AppCompatActivity() {
         ).attachToRecyclerView(binding.recyclerHistory)
 
         setupSearch()
+        registerBackHandler()
 
         lifecycleScope.launch {
             combine(
@@ -93,6 +98,18 @@ class HistoryActivity : AppCompatActivity() {
                 val dailyStats = dao.getDailyStatsList()
                 val dailyMap = dailyStats.associate { "${it.phoneNumber}|${it.dayKey}" to it }
                 allGroups = buildGroups(records, totalMap, dailyMap)
+                // records đã sort isPinned DESC, pinnedAt DESC -> giữ nguyên thứ tự ghim
+                pinnedRecords = records
+                    .filter { it.isPinned }
+                    .distinctBy { it.phoneNumber }
+                    .map { r ->
+                        HistoryItem.Record(
+                            record         = r,
+                            totalCallCount = totalMap[r.phoneNumber] ?: 1,
+                            dailyCount     = 1,
+                            lastCallTime   = r.timestamp
+                        )
+                    }
                 // Hôm nay mặc định mở, các ngày cũ mặc định đóng
                 val todayKey = dbDayFmt.format(Date())
                 allGroups.forEach { g ->
@@ -130,7 +147,7 @@ class HistoryActivity : AppCompatActivity() {
         val isEmpty = flat.none { it is HistoryItem.Record || it is HistoryItem.PinnedHeader }
         binding.layoutEmpty.visibility = if (isEmpty) View.VISIBLE else View.GONE
         if (isEmpty) {
-            if (allGroups.isEmpty()) {
+            if (allGroups.isEmpty() && pinnedRecords.isEmpty()) {
                 binding.tvEmptyIcon.text = "📋"
                 binding.tvEmptyText.text = "Chưa có lịch sử gọi"
             } else {
@@ -148,11 +165,9 @@ class HistoryActivity : AppCompatActivity() {
         val result = mutableListOf<HistoryItem>()
 
         // Section ghim — luôn mở, không có header toggle
-        val pinned = allGroups.flatMap { g -> g.records.filter { it.record.isPinned } }
-            .distinctBy { it.record.phoneNumber }
-        if (pinned.isNotEmpty() && searchQuery.isBlank()) {
+        if (pinnedRecords.isNotEmpty() && searchQuery.isBlank()) {
             result += HistoryItem.PinnedHeader
-            result += pinned
+            result += pinnedRecords
         }
 
         // Lịch sử theo ngày
@@ -344,7 +359,16 @@ class HistoryActivity : AppCompatActivity() {
         })
     }
 
-    override fun onBackPressed() {
-        if (searchVisible) hideSearch() else super.onBackPressed()
+    private fun registerBackHandler() {
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (searchVisible) {
+                    hideSearch()
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
     }
 }

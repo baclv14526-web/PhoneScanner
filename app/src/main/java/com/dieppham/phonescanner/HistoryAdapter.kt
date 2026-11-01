@@ -104,8 +104,12 @@ class HistoryAdapter(
 
             if (record.isPinned) {
                 tvTime.text = timeFmt.format(Date(record.timestamp))
-                tvCallCount.visibility = View.VISIBLE
-                tvCallCount.text = if (item.totalCallCount > 1) "${item.totalCallCount} lần" else ""
+                if (item.totalCallCount > 1) {
+                    tvCallCount.visibility = View.VISIBLE
+                    tvCallCount.text = "${item.totalCallCount} lần"
+                } else {
+                    tvCallCount.visibility = View.GONE
+                }
             } else {
                 tvTime.text = timeFmt.format(Date(item.lastCallTime))
                 if (item.dailyCount > 1) {

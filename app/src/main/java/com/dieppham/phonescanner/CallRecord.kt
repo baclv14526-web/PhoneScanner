@@ -1,13 +1,20 @@
 package com.dieppham.phonescanner
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
  * Mỗi lần bấm "Gọi" sau khi quét số sẽ tạo 1 bản ghi CallRecord.
  * timestamp: epoch milliseconds (System.currentTimeMillis())
  */
-@Entity(tableName = "call_records")
+@Entity(
+    tableName = "call_records",
+    indices = [
+        Index(value = ["phoneNumber"]),
+        Index(value = ["isPinned", "pinnedAt", "timestamp"])
+    ]
+)
 data class CallRecord(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val phoneNumber: String,

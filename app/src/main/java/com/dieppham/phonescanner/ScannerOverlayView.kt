@@ -5,9 +5,9 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import android.util.AttributeSet
@@ -37,11 +37,19 @@ class ScannerOverlayView @JvmOverloads constructor(
     private val scanLineH     = 3f * dp
 
     private val overlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_OVER)
+        style = Paint.Style.FILL
+        color = COLOR_OVERLAY
     }
-    private val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+    // Đường vẽ "toàn màn hình trừ khung" bằng EVEN_ODD: không cần layer offscreen/CLEAR
+    private val overlayPath = Path().apply { fillType = Path.FillType.EVEN_ODD }
+    private val scanGradient: LinearGradient by lazy {
+        LinearGradient(
+            0f, 0f, 1f, scanLineH * 6,
+            intArrayOf(Color.TRANSPARENT, COLOR_FRAME, Color.TRANSPARENT),
+            floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP
+        )
     }
+    private val gradMatrix = Matrix()
     private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.5f * dp
@@ -64,26 +72,25 @@ class ScannerOverlayView @JvmOverloads constructor(
     private var scanAnimator:  ValueAnimator? = null
     private var flashAnimator: ValueAnimator? = null
 
-    init { setLayerType(LAYER_TYPE_HARDWARE, null) }
-
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         // Đặt khung ở 40%-giữa màn hình — căn đúng trên A23 5G 20:9
         val top = h * 0.38f
         frameRect.set(frameMarginH, top, w - frameMarginH, top + frameHeight)
+
+        // Dựng sẵn path nền tối có lỗ khoét — onDraw không phải cấp phát lại
+        overlayPath.reset()
+        overlayPath.addRect(0f, 0f, w.toFloat(), h.toFloat(), Path.Direction.CW)
+        overlayPath.addRoundRect(frameRect, frameRadius, frameRadius, Path.Direction.CW)
+
         startScanAnimation()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val w = width.toFloat(); val h = height.toFloat()
 
-        // 1. Phủ tối toàn màn hình
-        overlayPaint.color = COLOR_OVERLAY
-        canvas.drawRect(0f, 0f, w, h, overlayPaint)
-
-        // 2. Khoét lỗ trong suốt vùng khung
-        canvas.drawRoundRect(frameRect, frameRadius, frameRadius, clearPaint)
+        // 1+2. Phủ tối toàn màn hình, chừa lỗ trong suốt ở vùng khung
+        canvas.drawPath(overlayPath, overlayPaint)
 
         // 3. Flash xanh lá khi nhận diện được
         if (flashAlpha > 0) {
@@ -101,12 +108,11 @@ class ScannerOverlayView @JvmOverloads constructor(
 
         // 6. Scan line chạy lên xuống
         if (!isSuccess) {
-            val grad = LinearGradient(
-                frameRect.left, scanLineY, frameRect.right, scanLineY + scanLineH * 6,
-                intArrayOf(Color.TRANSPARENT, COLOR_FRAME, Color.TRANSPARENT),
-                floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP
-            )
-            scanLinePaint.shader = grad
+            // Gradient dựng 1 lần; mỗi frame chỉ dịch/co giãn bằng matrix (không cấp phát)
+            gradMatrix.setScale(frameRect.width(), 1f)
+            gradMatrix.postTranslate(frameRect.left, scanLineY)
+            scanGradient.setLocalMatrix(gradMatrix)
+            scanLinePaint.shader = scanGradient
             canvas.drawRect(frameRect.left, scanLineY, frameRect.right, scanLineY + scanLineH, scanLinePaint)
         }
     }
