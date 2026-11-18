@@ -45,6 +45,60 @@ object PhoneNumberExtractor {
     }
 
     // -------------------------------------------------------------------------
+    // CHỈ DÙNG CHO ẢNH THƯ VIỆN (ảnh chụp chat nhiều dòng). Camera không dùng hàm này.
+    //
+    // Ý tưởng: bỏ qua mọi chữ, chỉ nhìn vào các "cụm số" (0912, 345, 678, +84...).
+    // Các cụm số đứng liền nhau (chỉ cách bởi khoảng trắng, xuống dòng, . - ( ) )
+    // được thử ghép lại thành một số điện thoại hợp lệ. Nhờ vậy:
+    //  - dòng chữ thường (không chứa số) bị bỏ qua hoàn toàn;
+    //  - dòng có số khác (giờ 10:45, ngày 15/11/2023, mã đơn, giá tiền) không ghép
+    //    được thành SĐT hợp lệ nên bị loại;
+    //  - SĐT bị ngắt xuống dòng trong bong bóng chat vẫn được ghép lại.
+    // -------------------------------------------------------------------------
+    private val DIGIT_CHUNK_REGEX = Regex("""\+?\d(?:[\d.\-()]*\d)?""")
+    private val CHUNK_GAP_REGEX = Regex("""[\s().\-]*""")
+    private const val MAX_DIGITS = 12          // +84 + 2 số vùng + 8 số = 12 chữ số là tối đa
+    private const val MAX_CHUNKS_PER_NUMBER = 6
+
+    fun extractForGallery(visionText: Text): List<String> {
+        val results = LinkedHashSet<String>()
+        for (block in visionText.textBlocks) {
+            val text = block.lines.joinToString("\n") { it.text }
+            results += extractNumbersFromText(text)
+        }
+        return results.toList()
+    }
+
+    private fun extractNumbersFromText(text: String): List<String> {
+        val chunks = DIGIT_CHUNK_REGEX.findAll(text).toList()
+        val found = mutableListOf<String>()
+        var i = 0
+        while (i < chunks.size) {
+            val prefix = if (chunks[i].value.startsWith("+")) "+" else ""
+            val digits = StringBuilder()
+            var matchedEnd = -1
+            var j = i
+            while (j < chunks.size && j < i + MAX_CHUNKS_PER_NUMBER) {
+                if (j > i) {
+                    val gap = text.substring(chunks[j - 1].range.last + 1, chunks[j].range.first)
+                    if (!CHUNK_GAP_REGEX.matches(gap)) break   // có chữ xen giữa → không phải cùng 1 số
+                }
+                digits.append(chunks[j].value.filter { it.isDigit() })
+                if (digits.length > MAX_DIGITS) break
+                val normalized = normalizeIfValid("$prefix$digits")
+                if (normalized != null) {
+                    found += normalized
+                    matchedEnd = j
+                    break
+                }
+                j++
+            }
+            i = if (matchedEnd >= 0) matchedEnd + 1 else i + 1
+        }
+        return found
+    }
+
+    // -------------------------------------------------------------------------
     private fun cleanCandidate(raw: String): String {
         val hasPlus = raw.trimStart().startsWith("+")
         val digitsOnly = raw.filter { it.isDigit() }

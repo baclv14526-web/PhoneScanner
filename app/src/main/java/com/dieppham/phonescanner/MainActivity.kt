@@ -375,9 +375,14 @@ class MainActivity : AppCompatActivity() {
             recognizer.process(inputImage)
                 .addOnSuccessListener { visionText ->
                     if (isFinishing || isDestroyed) return@addOnSuccessListener
-                    val candidates = PhoneNumberExtractor
-                        .extractCandidatesWithPosition(visionText, bitmap.height)
-                    val numbers = candidates.map { it.number }.distinct()
+                    // Hàm riêng cho ảnh thư viện: chỉ lấy dòng/cụm số hợp lệ, bỏ qua mọi dòng khác,
+                    // ghép được số bị ngắt dòng. Cộng thêm kết quả của hàm cũ làm dự phòng.
+                    val numbers = (
+                        PhoneNumberExtractor.extractForGallery(visionText) +
+                            PhoneNumberExtractor
+                                .extractCandidatesWithPosition(visionText, bitmap.height)
+                                .map { it.number }
+                        ).distinct()
                     if (numbers.isEmpty()) {
                         Toast.makeText(
                             this@MainActivity,
@@ -425,7 +430,9 @@ class MainActivity : AppCompatActivity() {
         } ?: return null
 
         var sampleSize = 1
-        val maxDim = 2048
+        // 4096: ảnh chụp màn hình điện thoại (vd 1080x2400) giữ nguyên độ phân giải gốc.
+        // Thu nhỏ còn một nửa làm chữ trong khung chat quá bé để OCR đọc.
+        val maxDim = 4096
         while (boundsOptions.outWidth / sampleSize > maxDim ||
             boundsOptions.outHeight / sampleSize > maxDim
         ) {
