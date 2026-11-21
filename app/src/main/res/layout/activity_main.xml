@@ -224,6 +224,20 @@
                 android:fontFamily="sans-serif-medium"
                 tools:text="0912 345 678" />
 
+            <!-- Nhà mạng của số vừa quét (màu theo nhà mạng, đặt trong code) -->
+            <TextView
+                android:id="@+id/tvDetectedCarrier"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="4dp"
+                android:background="@drawable/bg_carrier_pill"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                tools:text="VinaPhone"
+                tools:textColor="#40C4FF" />
+
             <View
                 android:layout_width="48dp"
                 android:layout_height="1dp"

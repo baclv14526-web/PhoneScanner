@@ -509,6 +509,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Hiện nhà mạng (theo đầu số) dưới số trên thẻ xác nhận
+    private fun updateCarrierLabel(number: String) {
+        val carrier = CarrierDetector.detect(number)
+        binding.tvDetectedCarrier.text = carrier
+        binding.tvDetectedCarrier.setTextColor(CarrierDetector.colorFor(carrier))
+    }
+
     private fun showConfirmationCard(numbers: List<String>) {
         if (numbers.isEmpty()) return
         logScannedNumbers(numbers)   // ghi nhật ký cho cả camera và ảnh thư viện, kể cả khi tự động gọi
@@ -525,6 +532,7 @@ class MainActivity : AppCompatActivity() {
         // Hiện số đầu tiên (gần tâm khung nhất)
         confirmedNumber = numbers[0]
         binding.tvDetectedNumber.text = PhoneNumberExtractor.formatForDisplay(numbers[0])
+        updateCarrierLabel(numbers[0])
 
         // Nếu có nhiều số trong khung: hiện nút chọn số khác
         if (numbers.size > 1) {
@@ -537,6 +545,7 @@ class MainActivity : AppCompatActivity() {
                     .setItems(displayList) { _, idx ->
                         confirmedNumber = numbers[idx]
                         binding.tvDetectedNumber.text = displayList[idx]
+                        updateCarrierLabel(numbers[idx])
                     }
                     .show()
             }
