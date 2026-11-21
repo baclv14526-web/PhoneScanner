@@ -51,6 +51,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var dao: CallRecordDao
+    private lateinit var scanDao: ScanRecordDao   // nhật ký số đã quét (độc lập với lịch sử gọi)
     private var analyzer: PhoneNumberAnalyzer? = null
     private var pendingNumberToCall: String? = null
     private var camera: Camera? = null
@@ -105,6 +106,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         dao = AppDatabase.get(this).callRecordDao()
+        scanDao = AppDatabase.get(this).scanRecordDao()
 
         // Đọc cài đặt tự động gọi đã lưu
         autoCallEnabled = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -117,6 +119,11 @@ class MainActivity : AppCompatActivity() {
         // Nút mở lịch sử (góc trên phải)
         binding.btnHistory.setOnClickListener {
             startActivity(Intent(this, HistoryActivity::class.java))
+        }
+
+        // Nút mở nhật ký số đã quét
+        binding.btnScanLog.setOnClickListener {
+            startActivity(Intent(this, ScanLogActivity::class.java))
         }
 
         // Nút torch thủ công
@@ -484,8 +491,27 @@ class MainActivity : AppCompatActivity() {
         if (torchOn) { torchOn = false; updateTorchButton() }
     }
 
+    /**
+     * Ghi nhật ký: mỗi số nhận diện được trong lượt quét này thành 1 bản ghi
+     * (số, nhà mạng theo đầu số, thời điểm quét). Chạy nền; lỗi DB không được làm hỏng luồng quét.
+     */
+    private fun logScannedNumbers(numbers: List<String>) {
+        val now = System.currentTimeMillis()
+        val records = numbers.distinct().map {
+            ScanRecord(phoneNumber = it, carrier = CarrierDetector.detect(it), timestamp = now)
+        }
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                scanDao.insertAll(records)
+            } catch (_: Exception) {
+                // bỏ qua
+            }
+        }
+    }
+
     private fun showConfirmationCard(numbers: List<String>) {
         if (numbers.isEmpty()) return
+        logScannedNumbers(numbers)   // ghi nhật ký cho cả camera và ảnh thư viện, kể cả khi tự động gọi
         stopCamera()   // tắt camera ngay khi đã có số
 
         // Chế độ tự động gọi: bỏ qua card xác nhận, gọi thẳng số đầu tiên

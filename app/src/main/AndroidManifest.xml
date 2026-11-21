@@ -31,6 +31,12 @@
             android:parentActivityName=".MainActivity" />
 
         <activity
+            android:name=".ScanLogActivity"
+            android:exported="false"
+            android:label="Nhật ký số đã quét"
+            android:parentActivityName=".MainActivity" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:screenOrientation="portrait">

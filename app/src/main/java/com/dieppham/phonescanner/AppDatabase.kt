@@ -7,10 +7,11 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [CallRecord::class], version = 3, exportSchema = false)
+@Database(entities = [CallRecord::class, ScanRecord::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun callRecordDao(): CallRecordDao
+    abstract fun scanRecordDao(): ScanRecordDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -40,6 +41,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Migration 3→4: thêm bảng nhật ký quét (scan_records). SQL phải khớp đúng schema
+        // Room tự sinh cho ScanRecord (kiểu cột, NOT NULL, khóa chính, tên index), nếu không
+        // Room sẽ báo "Migration didn't properly handle" khi mở DB.
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `scan_records` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`phoneNumber` TEXT NOT NULL, " +
+                        "`carrier` TEXT NOT NULL, " +
+                        "`timestamp` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_scan_records_timestamp` " +
+                        "ON `scan_records` (`timestamp`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_scan_records_phoneNumber` " +
+                        "ON `scan_records` (`phoneNumber`)"
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -47,7 +71,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "phonescanner.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
                 .also { INSTANCE = it }
             }
