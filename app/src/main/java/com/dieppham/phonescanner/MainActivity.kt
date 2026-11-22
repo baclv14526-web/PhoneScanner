@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.graphics.RectF
 import android.media.ExifInterface
 import android.os.Build
 import android.os.VibrationEffect
@@ -33,6 +34,7 @@ import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.dieppham.phonescanner.databinding.ActivityMainBinding
@@ -45,6 +47,7 @@ import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
 
@@ -104,6 +107,16 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Xem camera phủ kín màn hình kiểu FILL_CENTER (đặt tường minh vì analyzer quy đổi khung
+        // xanh sang toạ độ ảnh dựa đúng trên giả định này).
+        binding.previewView.scaleType = PreviewView.ScaleType.FILL_CENTER
+        // Khung xanh là nguồn duy nhất về vị trí: mỗi lần bố cục đổi, cập nhật vùng OCR và các
+        // thanh định vị (đèn pin, nút tự gọi, dòng gợi ý) theo khung.
+        // post: đổi Guideline gọi requestLayout, không nên làm ngay giữa lúc đang bố cục.
+        binding.scanOverlay.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            binding.scanOverlay.post { alignToScanFrame() }
+        }
 
         dao = AppDatabase.get(this).callRecordDao()
         scanDao = AppDatabase.get(this).scanRecordDao()
@@ -292,6 +305,7 @@ class MainActivity : AppCompatActivity() {
             )
             phoneAnalyzer.debugEnabled = binding.tvDebug.visibility == View.VISIBLE
             analyzer = phoneAnalyzer
+            applyScanZone()   // analyzer mới phải biết khung xanh ngay từ frame đầu tiên
             imageAnalysis.setAnalyzer(cameraExecutor, phoneAnalyzer)
 
             try {
@@ -318,6 +332,41 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Không mở được camera: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    // Giá trị Guideline lần trước — chỉ đặt lại khi đổi, tránh vòng lặp "bố cục → đặt Guideline →
+    // bố cục lại" (setGuidelineBegin luôn gọi requestLayout).
+    private var lastGuideTop = -1
+    private var lastGuideBottom = -1
+
+    /** Đưa Guideline trên/dưới về đúng mép khung xanh, rồi cập nhật vùng OCR. */
+    private fun alignToScanFrame() {
+        val frame = binding.scanOverlay.frameRect
+        if (frame.isEmpty) return
+        val top = frame.top.roundToInt()
+        val bottom = frame.bottom.roundToInt()
+        if (top != lastGuideTop) {
+            lastGuideTop = top
+            binding.guideFrameTop.setGuidelineBegin(top)
+        }
+        if (bottom != lastGuideBottom) {
+            lastGuideBottom = bottom
+            binding.guideFrameBottom.setGuidelineBegin(bottom)
+        }
+        applyScanZone()
+    }
+
+    /**
+     * Báo cho analyzer vùng được phép nhận số = khung xanh (nới 8dp mỗi phía để số sát mép không
+     * bị loại oan do sai số vài pixel). Toạ độ View; analyzer tự quy đổi sang toạ độ ảnh.
+     */
+    private fun applyScanZone() {
+        val overlay = binding.scanOverlay
+        val frame = overlay.frameRect
+        if (frame.isEmpty || overlay.width <= 0 || overlay.height <= 0) return
+        val tolerance = 8 * resources.displayMetrics.density
+        val zone = RectF(frame).apply { inset(-tolerance, -tolerance) }
+        analyzer?.setScanZone(overlay.width, overlay.height, zone)
     }
 
     private fun focusOnScanZone(camera: Camera) {

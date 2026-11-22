@@ -1,5 +1,6 @@
 package com.dieppham.phonescanner
 
+import android.graphics.RectF
 import androidx.annotation.OptIn
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
@@ -25,11 +26,51 @@ class PhoneNumberAnalyzer(
     // Chỉ dựng chuỗi debug khi nhãn debug đang hiển thị (tránh tốn CPU mỗi frame)
     @Volatile var debugEnabled: Boolean = true
 
-    // Vùng lọc kết quả OCR theo tỉ lệ chiều cao ảnh — khớp với ScannerOverlayView
-    // (top = 0.38, cao 200dp). Lọc kết quả thay vì cắt ảnh để giữ nguyên đường
-    // YUV -> ML Kit chuẩn của InputImage.fromMediaImage.
-    private val zoneTop    = 0.30f
-    private val zoneBottom = 0.75f
+    // Vùng quét = đúng khung xanh trên màn hình. Lọc kết quả OCR thay vì cắt ảnh để giữ nguyên
+    // đường YUV -> ML Kit chuẩn của InputImage.fromMediaImage.
+    //
+    // Trước đây vùng lọc là dải cố định 30%-75% chiều cao ảnh, rộng hơn nhiều so với khung xanh
+    // (~30%-53%), nên số nằm ngoài khung vẫn bị quét. Giờ khung (toạ độ View) được quy đổi sang
+    // toạ độ ảnh tại mỗi frame, nên số được quét chắc chắn đang nằm trong vùng xanh.
+    private class ScanZone(
+        val viewW: Float, val viewH: Float,
+        val left: Float, val top: Float, val right: Float, val bottom: Float
+    )
+
+    @Volatile private var zone: ScanZone? = null
+
+    // Dự phòng khi chưa biết khung (chưa bố cục xong): dải cũ theo tỉ lệ chiều cao ảnh
+    private val fallbackTop    = 0.30f
+    private val fallbackBottom = 0.75f
+
+    /** Đặt vùng quét: kích thước View xem camera + khung xanh (px, toạ độ View). */
+    fun setScanZone(viewW: Int, viewH: Int, frame: RectF) {
+        if (viewW <= 0 || viewH <= 0 || frame.isEmpty) return
+        zone = ScanZone(
+            viewW.toFloat(), viewH.toFloat(),
+            frame.left, frame.top, frame.right, frame.bottom
+        )
+    }
+
+    /**
+     * Đổi khung từ toạ độ View sang tỉ lệ 0..1 trong ảnh phân tích (đã xoay thẳng đứng).
+     * PreviewView dùng FILL_CENTER: ảnh được phóng cho phủ kín View rồi cắt phần thừa ở giữa
+     * (cắt hai bên khi View "cao hơn" ảnh, như điện thoại 20:9) nên:
+     *   scale = max(viewW/imgW, viewH/imgH);  phần bị cắt mỗi phía = (img*scale - view)/2
+     */
+    private fun zoneInImage(imgW: Int, imgH: Int): RectF? {
+        val z = zone ?: return null
+        if (imgW <= 0 || imgH <= 0) return null
+        val scale = maxOf(z.viewW / imgW, z.viewH / imgH)
+        val offX = (imgW * scale - z.viewW) / 2f
+        val offY = (imgH * scale - z.viewH) / 2f
+        return RectF(
+            (z.left + offX) / scale / imgW,
+            (z.top + offY) / scale / imgH,
+            (z.right + offX) / scale / imgW,
+            (z.bottom + offY) / scale / imgH
+        )
+    }
 
     fun pause()  { paused = true }
     fun resume() { paused = false; candidateCounts.clear() }
@@ -51,15 +92,24 @@ class PhoneNumberAnalyzer(
             mediaImage,
             imageProxy.imageInfo.rotationDegrees
         )
-        // Chiều cao ảnh sau khi xoay — dùng để tính tỉ lệ vị trí dòng chữ
+        // Kích thước ảnh sau khi xoay — dùng để tính tỉ lệ vị trí dòng chữ
         val rotated = imageProxy.imageInfo.rotationDegrees % 180 != 0
+        val imageWidth  = if (rotated) imageProxy.height else imageProxy.width
         val imageHeight = if (rotated) imageProxy.width else imageProxy.height
+        val zoneRect = zoneInImage(imageWidth, imageHeight)
 
         recognizer.process(inputImage)
             .addOnSuccessListener { visionText ->
                 val candidates = PhoneNumberExtractor
-                    .extractCandidatesWithPosition(visionText, imageHeight)
-                    .filter { it.centerYRatio in zoneTop..zoneBottom }
+                    .extractCandidatesWithPosition(visionText, imageHeight, imageWidth)
+                    .filter { c ->
+                        if (zoneRect != null) {
+                            c.centerYRatio in zoneRect.top..zoneRect.bottom &&
+                                c.centerXRatio in zoneRect.left..zoneRect.right
+                        } else {
+                            c.centerYRatio in fallbackTop..fallbackBottom
+                        }
+                    }
 
                 if (debugEnabled) {
                     val debugText = buildString {

@@ -15,11 +15,18 @@ object PhoneNumberExtractor {
     // ML Kit trả kết quả theo cấu trúc: VisionText → Block → Line → Element.
     // Mỗi Line có boundingBox -> ta dùng centerY của Line để so sánh vị trí.
     // -------------------------------------------------------------------------
-    data class NumberCandidate(val number: String, val centerYRatio: Float)
+    // centerXRatio: vị trí ngang của dòng (0..1 theo chiều rộng ảnh); mặc định 0.5 khi caller không
+    // truyền imageWidth (ảnh thư viện không lọc theo khung nên không cần).
+    data class NumberCandidate(
+        val number: String,
+        val centerYRatio: Float,
+        val centerXRatio: Float = 0.5f
+    )
 
     fun extractCandidatesWithPosition(
         visionText: Text,
-        imageHeight: Int
+        imageHeight: Int,
+        imageWidth: Int = 0
     ): List<NumberCandidate> {
         val results = mutableListOf<NumberCandidate>()
 
@@ -35,7 +42,11 @@ object PhoneNumberExtractor {
                             box.exactCenterY() / imageHeight
                         else
                             0.5f   // fallback: coi như ở giữa nếu không có bbox
-                        results += NumberCandidate(normalized, centerY)
+                        val centerX = if (box != null && imageWidth > 0)
+                            box.exactCenterX() / imageWidth
+                        else
+                            0.5f
+                        results += NumberCandidate(normalized, centerY, centerX)
                         break   // chỉ lấy 1 số mỗi dòng, tránh đếm trùng
                     }
                 }

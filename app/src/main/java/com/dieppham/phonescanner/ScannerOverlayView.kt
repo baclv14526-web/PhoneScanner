@@ -65,6 +65,12 @@ class ScannerOverlayView @JvmOverloads constructor(
     private val scanLinePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val flashPaint    = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
 
+    companion object {
+        // Mép trên của khung = 30% chiều cao màn hình (trước đây 38% làm khung thấp hơn vị trí
+        // người dùng hướng camera và đẩy các nút điều khiển chồng vào khung).
+        const val FRAME_TOP_RATIO = 0.30f
+    }
+
     val frameRect = RectF()
     private var scanLineY   = 0f
     private var flashAlpha  = 0
@@ -74,8 +80,10 @@ class ScannerOverlayView @JvmOverloads constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        // Đặt khung ở 40%-giữa màn hình — căn đúng trên A23 5G 20:9
-        val top = h * 0.38f
+        // Vị trí khung là NGUỒN DUY NHẤT: vùng OCR của analyzer, nút đèn pin, nút tự gọi và dòng
+        // gợi ý đều tính theo frameRect này (xem MainActivity.alignToScanFrame), nên đổi
+        // FRAME_TOP_RATIO là mọi thứ đi theo, không cần sửa nơi khác.
+        val top = h * FRAME_TOP_RATIO
         frameRect.set(frameMarginH, top, w - frameMarginH, top + frameHeight)
 
         // Dựng sẵn path nền tối có lỗ khoét — onDraw không phải cấp phát lại
