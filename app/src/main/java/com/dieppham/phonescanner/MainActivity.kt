@@ -357,9 +357,14 @@ class MainActivity : AppCompatActivity() {
 
         binding.layoutGalleryLoading.visibility = View.VISIBLE
         lifecycleScope.launch {
+            var loadError: String? = null
             val bitmap = try {
                 withContext(Dispatchers.IO) { loadRotatedBitmap(uri) }
+            } catch (e: OutOfMemoryError) {
+                loadError = "ảnh quá lớn so với bộ nhớ"
+                null
             } catch (e: Exception) {
+                loadError = e.message ?: e.javaClass.simpleName
                 null
             }
 
@@ -372,7 +377,11 @@ class MainActivity : AppCompatActivity() {
             if (bitmap == null) {
                 isProcessingGalleryImage = false
                 binding.layoutGalleryLoading.visibility = View.GONE
-                Toast.makeText(this@MainActivity, "Không đọc được ảnh đã chọn", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    this@MainActivity,
+                    "Không đọc được ảnh đã chọn" + (loadError?.let { ": $it" } ?: ""),
+                    Toast.LENGTH_LONG
+                ).show()
                 resumeCameraIfIdle()
                 return@launch
             }
@@ -427,14 +436,24 @@ class MainActivity : AppCompatActivity() {
      * máy/app lưu sai chiều, cần đọc Orientation tag để xoay cho đúng trước khi OCR).
      * Đồng thời downsample nếu ảnh quá lớn để tránh OOM.
      */
-    private fun loadRotatedBitmap(uri: Uri): Bitmap? {
+    private fun loadRotatedBitmap(uri: Uri): Bitmap {
         val resolver = contentResolver
 
-        // Bước 1: đọc kích thước gốc để tính tỉ lệ downsample (tránh OOM với ảnh to)
+        // Bước 1: đọc kích thước gốc để tính tỉ lệ downsample (tránh OOM với ảnh to).
+        // LƯU Ý QUAN TRỌNG: khi inJustDecodeBounds = true, decodeStream LUÔN trả về null
+        // (chỉ điền outWidth/outHeight). Tuyệt đối không dùng giá trị trả về để kiểm tra
+        // thành công — phải kiểm tra outWidth/outHeight.
         val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { stream: InputStream ->
+        val boundsStream = resolver.openInputStream(uri)
+            ?: throw java.io.IOException("không mở được tệp ảnh")
+        boundsStream.use { stream: InputStream ->
             BitmapFactory.decodeStream(stream, null, boundsOptions)
-        } ?: return null
+        }
+        if (boundsOptions.outWidth <= 0 || boundsOptions.outHeight <= 0) {
+            throw java.io.IOException(
+                "định dạng ảnh không được hỗ trợ (${boundsOptions.outMimeType ?: "không rõ"})"
+            )
+        }
 
         var sampleSize = 1
         // 4096: ảnh chụp màn hình điện thoại (vd 1080x2400) giữ nguyên độ phân giải gốc.
@@ -447,17 +466,24 @@ class MainActivity : AppCompatActivity() {
         }
 
         val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-        val rawBitmap = resolver.openInputStream(uri)?.use { stream: InputStream ->
+        val imageStream = resolver.openInputStream(uri)
+            ?: throw java.io.IOException("không mở được tệp ảnh")
+        val rawBitmap = imageStream.use { stream: InputStream ->
             BitmapFactory.decodeStream(stream, null, decodeOptions)
-        } ?: return null
+        } ?: throw java.io.IOException("không giải mã được ảnh")
 
-        // Bước 2: đọc Exif orientation và xoay nếu cần
-        val orientation = resolver.openInputStream(uri)?.use { stream: InputStream ->
-            ExifInterface(stream).getAttributeInt(
-                ExifInterface.TAG_ORIENTATION,
-                ExifInterface.ORIENTATION_NORMAL
-            )
-        } ?: ExifInterface.ORIENTATION_NORMAL
+        // Bước 2: đọc Exif orientation và xoay nếu cần.
+        // Lỗi đọc Exif không được làm hỏng cả việc quét: coi như ảnh không cần xoay.
+        val orientation = try {
+            resolver.openInputStream(uri)?.use { stream: InputStream ->
+                ExifInterface(stream).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+                )
+            } ?: ExifInterface.ORIENTATION_NORMAL
+        } catch (e: Exception) {
+            ExifInterface.ORIENTATION_NORMAL
+        }
 
         val rotationDegrees = when (orientation) {
             ExifInterface.ORIENTATION_ROTATE_90  -> 90
