@@ -10,9 +10,13 @@ import android.text.TextWatcher
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import android.text.InputFilter
+import android.text.InputType
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.dieppham.phonescanner.databinding.ActivityScanLogBinding
@@ -32,7 +36,9 @@ import java.util.TimeZone
  *  - Mỗi lượt quét: số điện thoại, nhà mạng, thời gian quét.
  *  - Gom nhóm theo ngày (mới nhất trước).
  *  - Lọc theo mốc thời gian (hôm nay, hôm qua, 7/30 ngày, tháng này, khoảng ngày tùy chọn).
- *  - Tìm kiếm theo số, nhà mạng, ngày (vd 15/11) hoặc giờ (vd 09:30).
+ *  - Tìm kiếm theo số, nhà mạng, ghi chú, ngày (vd 15/11) hoặc giờ (vd 09:30).
+ *  - Cùng số quét lại trong vòng 1 phút được gộp thành 1 dòng "×N".
+ *  - Mỗi số có thể có 1 ghi chú (nút 📝/✏️ cạnh số).
  */
 class ScanLogActivity : AppCompatActivity() {
 
@@ -51,6 +57,7 @@ class ScanLogActivity : AppCompatActivity() {
     // Dữ liệu mới nhất từ DB cho khoảng thời gian đang chọn (chưa lọc theo ô tìm kiếm)
     private var latestRecords: List<ScanRecord> = emptyList()
     private var latestCounts: Map<String, Int> = emptyMap()
+    private var latestNotes: Map<String, String> = emptyMap()
 
     private val dayKeyFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     private val dayLabelFmt = SimpleDateFormat("EEEE, dd/MM/yyyy", Locale("vi"))
@@ -71,7 +78,10 @@ class ScanLogActivity : AppCompatActivity() {
 
         dao = AppDatabase.get(this).scanRecordDao()
 
-        adapter = ScanLogAdapter(onRowClick = { showRowActions(it) })
+        adapter = ScanLogAdapter(
+            onRowClick = { showRowActions(it) },
+            onNoteClick = { phone, note -> showNoteDialog(phone, note) }
+        )
         binding.recyclerScanLog.layoutManager = LinearLayoutManager(this)
         binding.recyclerScanLog.adapter = adapter
 
@@ -102,10 +112,13 @@ class ScanLogActivity : AppCompatActivity() {
         loadJob?.cancel()
         val (from, to) = currentRange()
         loadJob = lifecycleScope.launch {
-            combine(dao.observeRange(from, to), dao.observeCounts()) { recs, counts -> recs to counts }
-                .collect { (recs, counts) ->
+            combine(dao.observeRange(from, to), dao.observeCounts(), dao.observeNotes()) { recs, counts, notes ->
+                Triple(recs, counts, notes)
+            }
+                .collect { (recs, counts, notes) ->
                     latestRecords = recs
                     latestCounts = counts.associate { it.phoneNumber to it.cnt }
+                    latestNotes = notes.associate { it.phoneNumber to it.note }
                     render()
                 }
         }
@@ -259,7 +272,8 @@ class ScanLogActivity : AppCompatActivity() {
             (numericLike && (r.phoneNumber.contains(qDigits) ||
                 (qDigitsLocal != null && r.phoneNumber.contains(qDigitsLocal)))) ||
                 (dateTimeQuery && dateTimeFmt.format(Date(r.timestamp)).contains(q)) ||
-                stripAccents(r.carrier.lowercase(Locale.ROOT)).contains(qNorm)
+                stripAccents(r.carrier.lowercase(Locale.ROOT)).contains(qNorm) ||
+                (latestNotes[r.phoneNumber]?.let { stripAccents(it.lowercase(Locale.ROOT)).contains(qNorm) } ?: false)
         }
     }
 
@@ -284,8 +298,8 @@ class ScanLogActivity : AppCompatActivity() {
                 yesterdayKey -> "HÔM QUA"
                 else         -> dayLabelFmt.format(Date(recs.first().timestamp)).uppercase()
             }
-            items += ScanLogItem.DayHeader(dayKey, label, recs.size)
-            recs.forEach { items += ScanLogItem.Row(it, latestCounts[it.phoneNumber] ?: 1) }
+            items += ScanLogItem.DayHeader(dayKey, label, recs.sumOf { it.scanCount })
+            recs.forEach { items += ScanLogItem.Row(it, latestNotes[it.phoneNumber]) }
         }
         adapter.submitList(items)
 
@@ -302,7 +316,7 @@ class ScanLogActivity : AppCompatActivity() {
             binding.tvSummary.visibility = View.GONE
         } else {
             val distinct = filtered.map { it.phoneNumber }.distinct().size
-            binding.tvSummary.text = "${filtered.size} lượt quét · $distinct số khác nhau"
+            binding.tvSummary.text = "${filtered.sumOf { it.scanCount }} lượt quét · $distinct số khác nhau"
             binding.tvSummary.visibility = View.VISIBLE
         }
     }
@@ -310,6 +324,43 @@ class ScanLogActivity : AppCompatActivity() {
     // -------------------------------------------------------------------------
     // Thao tác trên một dòng
     // -------------------------------------------------------------------------
+
+    private fun showNoteDialog(phone: String, currentNote: String?) {
+        val display = PhoneNumberExtractor.formatForDisplay(phone)
+        val pad = (20 * resources.displayMetrics.density).toInt()
+        val input = EditText(this).apply {
+            setText(currentNote ?: "")
+            setSelection(text.length)
+            hint = "Ví dụ: Anh Nam – giao hàng"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            minLines = 2
+            maxLines = 5
+            filters = arrayOf(InputFilter.LengthFilter(200))
+        }
+        val container = FrameLayout(this).apply {
+            setPadding(pad, pad / 2, pad, 0)
+            addView(input)
+        }
+        val builder = AlertDialog.Builder(this)
+            .setTitle(if (currentNote.isNullOrBlank()) "Thêm ghi chú · $display" else "Sửa ghi chú · $display")
+            .setView(container)
+            .setPositiveButton("Lưu") { _, _ ->
+                val text = input.text.toString().trim()
+                lifecycleScope.launch {
+                    if (text.isEmpty()) dao.deleteNote(phone)
+                    else dao.upsertNote(PhoneNote(phone, text, System.currentTimeMillis()))
+                }
+            }
+            .setNegativeButton("Hủy", null)
+        if (!currentNote.isNullOrBlank()) {
+            builder.setNeutralButton("Xóa ghi chú") { _, _ ->
+                lifecycleScope.launch { dao.deleteNote(phone) }
+            }
+        }
+        builder.show()
+        input.requestFocus()
+    }
 
     private fun showRowActions(r: ScanRecord) {
         val display = PhoneNumberExtractor.formatForDisplay(r.phoneNumber)

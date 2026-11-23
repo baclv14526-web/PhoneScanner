@@ -572,12 +572,11 @@ class MainActivity : AppCompatActivity() {
      */
     private fun logScannedNumbers(numbers: List<String>) {
         val now = System.currentTimeMillis()
-        val records = numbers.distinct().map {
-            ScanRecord(phoneNumber = it, carrier = CarrierDetector.detect(it), timestamp = now)
-        }
+        val distinct = numbers.distinct()
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                scanDao.insertAll(records)
+                // Cùng số quét lại trong vòng 1 phút sẽ được gộp thành "số lần quét" (xem logScan)
+                distinct.forEach { scanDao.logScan(it, CarrierDetector.detect(it), now) }
             } catch (_: Exception) {
                 // bỏ qua
             }

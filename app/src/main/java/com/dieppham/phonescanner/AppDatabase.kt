@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [CallRecord::class, ScanRecord::class], version = 4, exportSchema = false)
+@Database(entities = [CallRecord::class, ScanRecord::class, PhoneNote::class], version = 5, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun callRecordDao(): CallRecordDao
@@ -64,6 +64,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Migration 4→5: thêm cột scanCount (gộp lượt quét) và bảng phone_notes (ghi chú theo số).
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `scan_records` ADD COLUMN `scanCount` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `phone_notes` (" +
+                        "`phoneNumber` TEXT NOT NULL, " +
+                        "`note` TEXT NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`phoneNumber`))"
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -71,7 +85,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "phonescanner.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
                 .also { INSTANCE = it }
             }

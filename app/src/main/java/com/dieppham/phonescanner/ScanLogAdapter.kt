@@ -15,11 +15,12 @@ import java.util.Locale
 /** Phần tử hiển thị trong nhật ký quét: tiêu đề ngày hoặc một lượt quét. */
 sealed class ScanLogItem {
     data class DayHeader(val dayKey: String, val label: String, val count: Int) : ScanLogItem()
-    data class Row(val record: ScanRecord, val totalScans: Int) : ScanLogItem()
+    data class Row(val record: ScanRecord, val note: String?) : ScanLogItem()
 }
 
 class ScanLogAdapter(
-    private val onRowClick: (ScanRecord) -> Unit
+    private val onRowClick: (ScanRecord) -> Unit,
+    private val onNoteClick: (phone: String, currentNote: String?) -> Unit
 ) : ListAdapter<ScanLogItem, RecyclerView.ViewHolder>(DIFF) {
 
     companion object {
@@ -75,12 +76,22 @@ class ScanLogAdapter(
             b.tvCarrier.setTextColor(CarrierDetector.colorFor(r.carrier))
             b.tvTime.text = timeFmt.format(Date(r.timestamp))
             b.tvIcon.text = if (r.carrier == CarrierDetector.LANDLINE) "☎" else "📱"
-            if (item.totalScans > 1) {
+            if (r.scanCount > 1) {
                 b.tvScanCount.visibility = View.VISIBLE
-                b.tvScanCount.text = "×${item.totalScans}"
+                b.tvScanCount.text = "×${r.scanCount}"
             } else {
                 b.tvScanCount.visibility = View.GONE
             }
+            val note = item.note
+            if (note.isNullOrBlank()) {
+                b.tvNote.visibility = View.GONE
+                b.btnNote.text = "📝"
+            } else {
+                b.tvNote.visibility = View.VISIBLE
+                b.tvNote.text = "📝 $note"
+                b.btnNote.text = "✏️"
+            }
+            b.btnNote.setOnClickListener { onNoteClick(r.phoneNumber, note) }
             b.root.setOnClickListener { onRowClick(r) }
         }
     }
