@@ -38,6 +38,7 @@ import java.util.TimeZone
  *  - Lọc theo mốc thời gian (hôm nay, hôm qua, 7/30 ngày, tháng này, khoảng ngày tùy chọn).
  *  - Tìm kiếm theo số, nhà mạng, ghi chú, ngày (vd 15/11) hoặc giờ (vd 09:30).
  *  - Cùng số quét lại trong vòng 1 phút được gộp thành 1 dòng "×N".
+ *  - Sắp xếp trong mỗi ngày: theo giờ quét (mặc định) hoặc theo số điện thoại.
  *  - Mỗi số có thể có 1 ghi chú (nút 📝/✏️ cạnh số).
  */
 class ScanLogActivity : AppCompatActivity() {
@@ -52,6 +53,7 @@ class ScanLogActivity : AppCompatActivity() {
     private var customFrom = 0L
     private var customTo = 0L
     private var query = ""
+    private var sortByPhone = false
     private var loadJob: Job? = null
 
     // Dữ liệu mới nhất từ DB cho khoảng thời gian đang chọn (chưa lọc theo ô tìm kiếm)
@@ -87,6 +89,10 @@ class ScanLogActivity : AppCompatActivity() {
 
         setupSearch()
         setupChips()
+        binding.sortGroup.setOnCheckedStateChangeListener { _, ids ->
+            val byPhone = ids.firstOrNull() == R.id.chipSortPhone
+            if (byPhone != sortByPhone) { sortByPhone = byPhone; render() }
+        }
 
         binding.btnClearAll.setOnClickListener {
             AlertDialog.Builder(this)
@@ -299,7 +305,10 @@ class ScanLogActivity : AppCompatActivity() {
                 else         -> dayLabelFmt.format(Date(recs.first().timestamp)).uppercase()
             }
             items += ScanLogItem.DayHeader(dayKey, label, recs.sumOf { it.scanCount })
-            recs.forEach { items += ScanLogItem.Row(it, latestNotes[it.phoneNumber]) }
+            // Mặc định: mới nhất trước (đã sắp từ DB). Theo số: cùng số đứng liền nhau,
+            // trong cùng số vẫn mới nhất trước (sortedWith ổn định, giữ thứ tự thời gian).
+            val ordered = if (sortByPhone) recs.sortedBy { it.phoneNumber } else recs
+            ordered.forEach { items += ScanLogItem.Row(it, latestNotes[it.phoneNumber]) }
         }
         adapter.submitList(items)
 

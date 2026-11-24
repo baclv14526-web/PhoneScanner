@@ -142,6 +142,52 @@
         </com.google.android.material.chip.ChipGroup>
     </HorizontalScrollView>
 
+    <!-- Cách sắp xếp trong mỗi nhóm ngày -->
+    <LinearLayout
+        android:id="@+id/sortRow"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        app:layout_constraintTop_toBottomOf="@id/chipScroll"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Sắp xếp:"
+            android:textColor="#99FFFFFF"
+            android:textSize="13sp" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/sortGroup"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            app:singleSelection="true"
+            app:selectionRequired="true">
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipSortTime"
+                style="@style/ScanChip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="🕒 Giờ quét" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipSortPhone"
+                style="@style/ScanChip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📞 Số điện thoại" />
+        </com.google.android.material.chip.ChipGroup>
+    </LinearLayout>
+
     <!-- Tóm tắt kết quả đang lọc -->
     <TextView
         android:id="@+id/tvSummary"
@@ -153,7 +199,7 @@
         android:textColor="#66FFFFFF"
         android:textSize="12sp"
         android:visibility="gone"
-        app:layout_constraintTop_toBottomOf="@id/chipScroll"
+        app:layout_constraintTop_toBottomOf="@id/sortRow"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
