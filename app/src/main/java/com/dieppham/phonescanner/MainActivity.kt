@@ -193,30 +193,18 @@ class MainActivity : AppCompatActivity() {
     // -------------------------------------------------------------------------
 
     private fun setupAutoCallButton() {
-        updateAutoCallButton()
-        binding.btnAutoCall.setOnClickListener {
-            autoCallEnabled = !autoCallEnabled
+        // Khôi phục trạng thái đã lưu (không hoạt ảnh, không gọi callback)
+        binding.btnAutoCall.setChecked(autoCallEnabled, animate = false)
+        binding.btnAutoCall.onCheckedChange = { checked ->
+            autoCallEnabled = checked
             getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                 .putBoolean(PREF_AUTO_CALL, autoCallEnabled)
                 .apply()
-            updateAutoCallButton()
             val msg = if (autoCallEnabled)
                 "Tự động gọi: BẬT — quét số sẽ gọi ngay"
             else
                 "Tự động gọi: TẮT"
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun updateAutoCallButton() {
-        if (autoCallEnabled) {
-            binding.btnAutoCall.text = getString(R.string.auto_call_on)
-            binding.btnAutoCall.setTextColor(android.graphics.Color.BLACK)
-            binding.btnAutoCall.setBackgroundResource(R.drawable.bg_auto_call_on)
-        } else {
-            binding.btnAutoCall.text = getString(R.string.auto_call_off)
-            binding.btnAutoCall.setTextColor(0x80FFFFFF.toInt())
-            binding.btnAutoCall.setBackgroundResource(R.drawable.bg_auto_call_off)
         }
     }
 

@@ -393,10 +393,10 @@ class ScanLogActivity : AppCompatActivity() {
                     val newRecords = mutableListOf<ScanRecord>()
                     for (e in parsed.entries) {
                         val ts = e.timestamp ?: continue
-                        if (existing.add(e.phoneNumber to ts)) {
+                        if (existing.add(e.phone to ts)) {
                             newRecords += ScanRecord(
-                                phoneNumber = e.phoneNumber,
-                                carrier = CarrierDetector.detect(e.phoneNumber),
+                                phoneNumber = e.phone,
+                                carrier = CarrierDetector.detect(e.phone),
                                 timestamp = ts,
                                 scanCount = e.scanCount
                             )
@@ -407,8 +407,8 @@ class ScanLogActivity : AppCompatActivity() {
                     val haveNote = dao.getAllNotes().map { it.phoneNumber }.toHashSet()
                     var newNotes = 0
                     for (e in parsed.entries) {
-                        if (e.note.isNotEmpty() && haveNote.add(e.phoneNumber)) {
-                            dao.upsertNote(PhoneNote(e.phoneNumber, e.note, System.currentTimeMillis()))
+                        if (e.note.isNotEmpty() && haveNote.add(e.phone)) {
+                            dao.upsertNote(PhoneNote(e.phone, e.note, System.currentTimeMillis()))
                             newNotes++
                         }
                     }

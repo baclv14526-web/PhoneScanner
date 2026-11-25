@@ -180,19 +180,12 @@
         android:layout_marginStart="10dp"
         android:layout_marginTop="14dp" />
 
-    <!-- Nút bật/tắt tự động gọi — ngay dưới khung quét, góc phải (cao 44dp nên lệch 4dp để
+    <!-- Công tắc gạt tự động gọi — ngay dưới khung quét, góc phải (cao 44dp nên lệch 4dp để
          cùng tâm với nút torch cao 52dp) -->
-    <com.google.android.material.button.MaterialButton
+    <com.dieppham.phonescanner.AutoCallSwitch
         android:id="@+id/btnAutoCall"
-        style="@style/Widget.MaterialComponents.Button.TextButton"
-        android:layout_width="wrap_content"
+        android:layout_width="128dp"
         android:layout_height="44dp"
-        android:text="@string/auto_call_off"
-        android:textColor="#80FFFFFF"
-        android:textSize="12sp"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:background="@drawable/bg_auto_call_off"
         app:layout_constraintTop_toBottomOf="@id/guideFrameBottom"
         app:layout_constraintEnd_toEndOf="parent"
         android:layout_marginEnd="10dp"
