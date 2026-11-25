@@ -19,6 +19,19 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Xuất / nhập file .txt -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnTransfer"
+        style="@style/Widget.MaterialComponents.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Xuất/Nhập"
+        android:textColor="#FF00E5FF"
+        android:textSize="13sp"
+        app:layout_constraintTop_toTopOf="@id/toolbar"
+        app:layout_constraintBottom_toBottomOf="@id/toolbar"
+        app:layout_constraintEnd_toStartOf="@id/btnClearAll" />
+
     <!-- Xóa toàn bộ nhật ký -->
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnClearAll"

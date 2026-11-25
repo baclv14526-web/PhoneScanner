@@ -14,6 +14,15 @@ abstract class ScanRecordDao {
     @Insert
     abstract suspend fun insert(record: ScanRecord): Long
 
+    @Insert
+    abstract suspend fun insertAll(records: List<ScanRecord>)
+
+    @Query("SELECT * FROM scan_records")
+    abstract suspend fun getAllRecords(): List<ScanRecord>
+
+    @Query("SELECT * FROM phone_notes")
+    abstract suspend fun getAllNotes(): List<PhoneNote>
+
     @Query("SELECT * FROM scan_records WHERE phoneNumber = :phone ORDER BY timestamp DESC, id DESC LIMIT 1")
     abstract suspend fun latestFor(phone: String): ScanRecord?
 

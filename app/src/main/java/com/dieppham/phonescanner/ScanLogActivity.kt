@@ -13,6 +13,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import android.text.InputFilter
@@ -22,7 +23,9 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.dieppham.phonescanner.databinding.ActivityScanLogBinding
 import com.google.android.material.datepicker.MaterialDatePicker
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.text.Normalizer
 import java.text.SimpleDateFormat
@@ -69,6 +72,15 @@ class ScanLogActivity : AppCompatActivity() {
 
     private val customChipDefaultText = "📅 Chọn ngày…"
 
+    // Xuất: người dùng chọn nơi lưu (Storage Access Framework, không cần quyền bộ nhớ)
+    private val exportLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri -> if (uri != null) doExport(uri) }
+
+    private val importLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) doImport(uri) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityScanLogBinding.inflate(layoutInflater)
@@ -92,6 +104,20 @@ class ScanLogActivity : AppCompatActivity() {
         binding.sortGroup.setOnCheckedStateChangeListener { _, ids ->
             val byPhone = ids.firstOrNull() == R.id.chipSortPhone
             if (byPhone != sortByPhone) { sortByPhone = byPhone; render() }
+        }
+
+        binding.btnTransfer.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Xuất / nhập nhật ký")
+                .setItems(arrayOf("📤 Xuất ra file .txt", "📥 Nhập từ file .txt")) { _, which ->
+                    if (which == 0) {
+                        val stamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
+                        exportLauncher.launch("PhoneScanner_nhatky_$stamp.txt")
+                    } else {
+                        importLauncher.launch(arrayOf("text/plain", "text/*", "application/octet-stream"))
+                    }
+                }
+                .show()
         }
 
         binding.btnClearAll.setOnClickListener {
@@ -333,6 +359,70 @@ class ScanLogActivity : AppCompatActivity() {
     // -------------------------------------------------------------------------
     // Thao tác trên một dòng
     // -------------------------------------------------------------------------
+
+    // Xuất TOÀN BỘ nhật ký (không phụ thuộc bộ lọc/tìm kiếm đang chọn)
+    private fun doExport(uri: Uri) {
+        lifecycleScope.launch {
+            try {
+                val (count, text) = withContext(Dispatchers.IO) {
+                    val recs = dao.getAllRecords()
+                    val notes = dao.getAllNotes()
+                    recs.size to ScanLogTransfer.buildExport(recs, notes)
+                }
+                withContext(Dispatchers.IO) {
+                    contentResolver.openOutputStream(uri, "wt")?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                        ?: throw java.io.IOException("Không mở được file để ghi")
+                }
+                Toast.makeText(this@ScanLogActivity, "Đã xuất $count dòng nhật ký", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                Toast.makeText(this@ScanLogActivity, "Xuất thất bại: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // Nhập: bỏ qua dòng trùng (cùng số + cùng thời gian); ghi chú chỉ gán cho số CHƯA có ghi chú
+    private fun doImport(uri: Uri) {
+        lifecycleScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val text = contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                        ?: throw java.io.IOException("Không mở được file")
+                    val parsed = ScanLogTransfer.parse(text)
+
+                    val existing = dao.getAllRecords().map { it.phoneNumber to it.timestamp }.toHashSet()
+                    val newRecords = mutableListOf<ScanRecord>()
+                    for (e in parsed.entries) {
+                        val ts = e.timestamp ?: continue
+                        if (existing.add(e.phoneNumber to ts)) {
+                            newRecords += ScanRecord(
+                                phoneNumber = e.phoneNumber,
+                                carrier = CarrierDetector.detect(e.phoneNumber),
+                                timestamp = ts,
+                                scanCount = e.scanCount
+                            )
+                        }
+                    }
+                    if (newRecords.isNotEmpty()) dao.insertAll(newRecords)
+
+                    val haveNote = dao.getAllNotes().map { it.phoneNumber }.toHashSet()
+                    var newNotes = 0
+                    for (e in parsed.entries) {
+                        if (e.note.isNotEmpty() && haveNote.add(e.phoneNumber)) {
+                            dao.upsertNote(PhoneNote(e.phoneNumber, e.note, System.currentTimeMillis()))
+                            newNotes++
+                        }
+                    }
+                    Triple(newRecords.size, newNotes, parsed.skippedLines)
+                }
+                val (added, notes, skipped) = result
+                val msg = "Đã nhập $added lượt quét, $notes ghi chú" +
+                    if (skipped > 0) " (bỏ qua $skipped dòng không hợp lệ)" else ""
+                Toast.makeText(this@ScanLogActivity, msg, Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                Toast.makeText(this@ScanLogActivity, "Nhập thất bại: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     private fun showNoteDialog(phone: String, currentNote: String?) {
         val display = PhoneNumberExtractor.formatForDisplay(phone)
