@@ -59,6 +59,21 @@
             app:layout_constraintStart_toEndOf="@id/tvIcon"
             app:layout_constraintEnd_toStartOf="@id/tvCallCount" />
 
+        <!-- Nhà mạng (giống màn hình Nhật ký) -->
+        <TextView
+            android:id="@+id/tvCarrier"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="2dp"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:background="@drawable/bg_carrier_pill"
+            android:layout_marginStart="12dp"
+            android:layout_marginTop="5dp"
+            app:layout_constraintTop_toBottomOf="@id/tvNumber"
+            app:layout_constraintStart_toEndOf="@id/tvIcon" />
+
         <!-- Giờ gọi -->
         <TextView
             android:id="@+id/tvTime"
@@ -66,10 +81,10 @@
             android:layout_height="wrap_content"
             android:textColor="#66FFFFFF"
             android:textSize="12sp"
-            android:layout_marginStart="12dp"
-            android:layout_marginTop="3dp"
-            app:layout_constraintTop_toBottomOf="@id/tvNumber"
-            app:layout_constraintStart_toEndOf="@id/tvIcon"
+            android:layout_marginStart="8dp"
+            app:layout_constraintTop_toTopOf="@id/tvCarrier"
+            app:layout_constraintBottom_toBottomOf="@id/tvCarrier"
+            app:layout_constraintStart_toEndOf="@id/tvCarrier"
             app:layout_constraintEnd_toStartOf="@id/tvCallCount" />
 
         <!-- Số lần gọi -->

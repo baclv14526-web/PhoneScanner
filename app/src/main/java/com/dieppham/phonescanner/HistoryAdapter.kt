@@ -90,6 +90,7 @@ class HistoryAdapter(
     class RecordVH(view: View) : RecyclerView.ViewHolder(view) {
         private val tvNumber    = view.findViewById<TextView>(R.id.tvNumber)
         private val tvTime      = view.findViewById<TextView>(R.id.tvTime)
+        private val tvCarrier   = view.findViewById<TextView>(R.id.tvCarrier)
         private val tvCallCount = view.findViewById<TextView>(R.id.tvCallCount)
         private val tvPinIcon   = view.findViewById<TextView>(R.id.tvPinIcon)
 
@@ -100,6 +101,10 @@ class HistoryAdapter(
         ) {
             val record = item.record
             tvNumber.text  = record.displayNumber
+            // Nhà mạng tính theo đầu số lúc hiển thị (không cần đổi cơ sở dữ liệu)
+            val carrier = CarrierDetector.detect(record.phoneNumber)
+            tvCarrier.text = carrier
+            tvCarrier.setTextColor(CarrierDetector.colorFor(carrier))
             tvPinIcon.visibility = if (record.isPinned) View.VISIBLE else View.GONE
 
             if (record.isPinned) {
