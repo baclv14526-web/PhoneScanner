@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Nền đỏ chuyển sắc chéo -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFFF5252" />
+                <item android:offset="0.55" android:color="#FFE53935" />
+                <item android:offset="1.0" android:color="#FF9F1111" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Vệt sáng mềm góc trên phải -->
+    <path
+        android:fillColor="#26FFFFFF"
+        android:pathData="M44,-10 A52,52 0 1 0 148,-10 A52,52 0 1 0 44,-10 Z" />
+</vector>
