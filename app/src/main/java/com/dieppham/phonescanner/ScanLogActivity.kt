@@ -259,7 +259,30 @@ class ScanLogActivity : AppCompatActivity() {
     // Tìm kiếm + dựng danh sách
     // -------------------------------------------------------------------------
 
+    private fun focusSearchAndShowKeyboard() {
+        val et = binding.etSearch
+        et.requestFocus()
+        et.setSelection(et.text?.length ?: 0)
+        et.post {
+            (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
+                .showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
     private fun setupSearch() {
+        // Chạm vào bất kỳ chỗ nào của ô (kể cả biểu tượng kính lúp / vùng viền) đều focus + bật bàn phím
+        binding.searchLayout.setOnClickListener { focusSearchAndShowKeyboard() }
+        binding.searchLayout.setStartIconOnClickListener { focusSearchAndShowKeyboard() }
+        // Kéo danh sách thì ẩn bàn phím để xem được nhiều dòng hơn
+        binding.recyclerScanLog.addOnScrollListener(object : androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
+            override fun onScrollStateChanged(rv: androidx.recyclerview.widget.RecyclerView, newState: Int) {
+                if (newState == androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_DRAGGING) {
+                    (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
+                        .hideSoftInputFromWindow(binding.etSearch.windowToken, 0)
+                    binding.etSearch.clearFocus()
+                }
+            }
+        })
         binding.etSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit

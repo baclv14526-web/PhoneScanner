@@ -315,14 +315,14 @@ class HistoryActivity : AppCompatActivity() {
                 binding.searchLayout.layoutParams.height = anim.animatedValue as Int
                 binding.searchLayout.requestLayout()
             }
-            doOnEnd { binding.searchLayout.layoutParams.height =
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT }
+            doOnEnd {
+                binding.searchLayout.layoutParams.height =
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                focusSearchAndShowKeyboard()
+            }
         }.start()
-        binding.etSearch.requestFocus()
-        binding.etSearch.postDelayed({
-            (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
-                .showSoftInput(binding.etSearch, InputMethodManager.SHOW_IMPLICIT)
-        }, 200)
+        // Thử focus ngay (ô đang cao 0 nên có thể chưa nhận); lần chắc chắn là khi hoạt ảnh xong
+        focusSearchAndShowKeyboard()
         binding.btnSearch.text = "✕"
     }
 
@@ -346,6 +346,16 @@ class HistoryActivity : AppCompatActivity() {
         binding.searchLayout.animate().alpha(0f).setDuration(200).start()
         binding.btnSearch.text = "🔍"
         rebuildAndSubmit()
+    }
+
+    // Đưa con trỏ vào ô tìm kiếm và bật bàn phím ngay
+    private fun focusSearchAndShowKeyboard() {
+        val et = binding.etSearch
+        et.requestFocus()
+        et.post {
+            (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
+                .showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
+        }
     }
 
     private fun hideKeyboard() {

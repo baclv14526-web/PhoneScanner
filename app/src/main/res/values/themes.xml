@@ -14,4 +14,21 @@
         <item name="chipStrokeColor">@color/chip_stroke_selector</item>
         <item name="chipStrokeWidth">1dp</item>
     </style>
+
+    <!-- Ô tìm kiếm dạng viên thuốc: nền tối, biểu tượng kính lúp, viền xanh khi đang nhập -->
+    <style name="SearchBox" parent="Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+        <item name="boxCornerRadiusTopStart">26dp</item>
+        <item name="boxCornerRadiusTopEnd">26dp</item>
+        <item name="boxCornerRadiusBottomStart">26dp</item>
+        <item name="boxCornerRadiusBottomEnd">26dp</item>
+        <item name="boxBackgroundColor">#FF1A1A24</item>
+        <item name="boxStrokeColor">@color/search_stroke_selector</item>
+        <item name="boxStrokeWidth">1dp</item>
+        <item name="boxStrokeWidthFocused">2dp</item>
+        <item name="hintEnabled">false</item>
+        <item name="startIconDrawable">@drawable/ic_search</item>
+        <item name="startIconTint">#9900E5FF</item>
+        <item name="endIconMode">clear_text</item>
+        <item name="endIconTint">#99FFFFFF</item>
+    </style>
 </resources>

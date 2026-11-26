@@ -66,18 +66,12 @@
     <!-- Ô tìm kiếm: số điện thoại, nhà mạng, ngày (15/11), giờ (09:30) -->
     <com.google.android.material.textfield.TextInputLayout
         android:id="@+id/searchLayout"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
+        style="@style/SearchBox"
         android:layout_marginStart="16dp"
         android:layout_marginEnd="16dp"
-        android:layout_marginTop="4dp"
-        app:boxStrokeColor="#00E5FF"
-        app:boxStrokeWidth="1.5dp"
-        app:boxBackgroundColor="#14FFFFFF"
-        app:hintTextColor="#8800E5FF"
-        app:endIconMode="clear_text"
-        app:endIconTint="#5500E5FF"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
         app:layout_constraintTop_toBottomOf="@id/toolbar"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -88,12 +82,13 @@
             android:layout_height="wrap_content"
             android:hint="Tìm số, nhà mạng, 15/11, 09:30…"
             android:textColor="#FFFFFFFF"
+            android:textColorHint="#66FFFFFF"
             android:textSize="15sp"
             android:inputType="text"
             android:imeOptions="actionSearch"
             android:maxLines="1"
-            android:paddingTop="12dp"
-            android:paddingBottom="12dp" />
+            android:paddingTop="14dp"
+            android:paddingBottom="14dp" />
     </com.google.android.material.textfield.TextInputLayout>
 
     <!-- Mốc thời gian (cuộn ngang) -->
